@@ -1,0 +1,13 @@
+{
+  "$schema": "https://moe-ui-docs.vercel.app/schema/components.json",
+  "schemaVersion": 2,
+  "registry": "https://moe-ui-docs.vercel.app/r",
+  "typescript": true,
+  "framework": "expo",
+  "styling": "nativewind",
+  "paths": {
+    "components": "src/components",
+    "lib": "src/lib",
+    "css": "src/global.css"
+  }
+}

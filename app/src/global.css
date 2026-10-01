@@ -1,0 +1,107 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+@import "nativewind/theme";
+@import "tw-animate-css";
+
+/* Moe UI theme */
+/*
+ * The approved design (docs/DESIGN.md). Token names follow Moe UI / shadcn so the
+ * components pick them up. Six named colours:
+ *   Dhaka maroon  primary, brand-text   the restaurant's brand colour; replaced at run time
+ *                                       from its settings (src/theme/brand.ts)
+ *   Steam         background (light), foreground (dark)
+ *   Wok iron      foreground (light), background (dark); secondary, muted, border and
+ *                 input are mixes of Wok iron and Steam
+ *   Marigold      marigold: needs attention (new orders, applied promo); text on it is ink
+ *   Coriander     coriander: good news (open, paid, ready)
+ *   Achar         destructive: errors, closed, reject order
+ * Every pairing passes WCAG AA in both schemes (see docs/DESIGN.md).
+ */
+@theme {
+  --color-background: #fcfbf8;
+  --color-foreground: #1e1714;
+  --color-card: #fcfbf8;
+  --color-card-foreground: #1e1714;
+  --color-popover: #fcfbf8;
+  --color-popover-foreground: #1e1714;
+  --color-primary: #7a1f2b;
+  --color-primary-foreground: #fcfbf8;
+  --color-brand-text: #7a1f2b;
+  --color-secondary: #efedea;
+  --color-secondary-foreground: #1e1714;
+  --color-muted: #efedea;
+  --color-muted-foreground: #6e6966;
+  --color-accent: #efedea;
+  --color-accent-foreground: #1e1714;
+  --color-destructive: #b23a1b;
+  --color-destructive-foreground: #fcfbf8;
+  --color-marigold: #e4a11b;
+  --color-on-marigold: #1e1714;
+  --color-coriander: #2f6b3f;
+  --color-border: #dddbd8;
+  --color-input: #6e6966;
+  --color-ring: #1e1714;
+  --color-photo: #4b3529;
+  --color-on-photo: #f2ede6;
+  --color-scrim: rgb(30 23 20 / 0.45);
+
+  /* One 8 px radius for buttons, inputs and photos; 16 px for sheet corners. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --radius-xl: 16px;
+
+  /*
+   * One family per weight: Android can't pick a weight of a custom font, so each weight
+   * is its own family, loaded in src/theme/fonts.ts. Don't combine these with
+   * font-medium / font-semibold.
+   */
+  --font-display: "Eczar_600SemiBold";
+  --font-display-bold: "Eczar_700Bold";
+  --font-body: "Mukta_400Regular";
+  --font-body-medium: "Mukta_500Medium";
+  --font-body-semibold: "Mukta_600SemiBold";
+  --font-body-bold: "Mukta_700Bold";
+
+  /* The approved type scale, beyond Tailwind's text-sm (14/20) and text-base (16/24). */
+  --text-display: 34px;
+  --text-display--line-height: 38px;
+  --text-heading: 24px;
+  --text-heading--line-height: 30px;
+  --text-ticket: 40px;
+  --text-ticket--line-height: 44px;
+  --text-item: 17px;
+  --text-item--line-height: 22px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #1a1411;
+    --color-foreground: #f2ede6;
+    --color-card: #27211e;
+    --color-card-foreground: #f2ede6;
+    --color-popover: #27211e;
+    --color-popover-foreground: #f2ede6;
+    --color-primary: #b72f41;
+    --color-primary-foreground: #f2ede6;
+    --color-brand-text: #e18793;
+    --color-secondary: #27211e;
+    --color-secondary-foreground: #f2ede6;
+    --color-muted: #27211e;
+    --color-muted-foreground: #a9a39e;
+    --color-accent: #27211e;
+    --color-accent-foreground: #f2ede6;
+    --color-destructive: #f39274;
+    --color-destructive-foreground: #1a1411;
+    --color-marigold: #e9ae4a;
+    --color-on-marigold: #1a1411;
+    --color-coriander: #86c595;
+    --color-border: #3d3733;
+    --color-input: #a9a39e;
+    --color-ring: #f2ede6;
+    --color-photo: #3a2a21;
+    --color-on-photo: #f2ede6;
+    --color-scrim: rgb(0 0 0 / 0.55);
+  }
+}
