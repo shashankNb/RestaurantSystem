@@ -63,7 +63,7 @@ function NavTab({ href, label, active, badge = 0 }: { href: Href; label: string;
         className={cn(
           'min-h-11 flex-row items-center gap-2 rounded-md px-3',
           active ? 'bg-foreground' : 'active:bg-accent',
-          Platform.select({ web: cn(!active && 'hover:bg-accent', 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-2') }),
+          Platform.select({ web: cn(!active && 'hover:bg-accent', 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2') }),
         )}
       >
         <Text className={cn('font-body-semibold', active ? 'text-background' : 'text-foreground')}>{label}</Text>

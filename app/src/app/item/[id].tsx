@@ -1,13 +1,15 @@
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { X } from 'lucide-react-native';
-import { useId, useRef, useState } from 'react';
+import type { Metadata } from 'expo-router/server';
+import { useRef, useState } from 'react';
 import { AccessibilityInfo, Platform, Pressable, ScrollView, View } from 'react-native';
 import { useReducedMotion } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useCart, type CartLine } from '@/cart/cart-store';
 import { ChoiceRow } from '@/components/choice-row';
+import { X } from '@/components/icons';
+import { PageHead } from '@/components/page-head';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { SheetFrame, sheetBodyStyle } from '@/components/sheet-frame';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -20,22 +22,50 @@ import { errorMessage } from '@/lib/api/client';
 import { findMenuItem, useMenu } from '@/lib/api/menu';
 import { useRestaurant } from '@/lib/api/restaurant';
 import type { MenuItem, ModifierGroup } from '@/lib/api/schemas';
+import { loadStorefront } from '@/lib/api/storefront';
 import { formatMoney, formatPriceDelta } from '@/lib/money';
+import { itemPage, toMetadata } from '@/lib/page-meta';
+import { ServerStorefront } from '@/lib/server-storefront';
+import type { StorefrontLoaderData } from '@/lib/storefront-context';
 import { cn } from '@/lib/utils';
 
 const NOTES_MAX = 200;
+
+/** Web, for a shared link to a dish: the server loads the menu and renders the page with it. */
+export async function loader(): Promise<StorefrontLoaderData> {
+  return loadStorefront();
+}
+
+/** Web: the dish's title, description and photo for link previews and search results. */
+export async function generateMetadata(_request: unknown, params: Record<string, string | string[]>): Promise<Metadata> {
+  const { storefront } = await loadStorefront();
+
+  return toMetadata(itemPage(storefront?.restaurant, findMenuItem(storefront?.menu, Number(params.id))));
+}
+
+export default function ItemPage() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+
+  return (
+    <ServerStorefront path={`/item/${id}`}>
+      <ItemScreen />
+    </ServerStorefront>
+  );
+}
 
 /**
  * A dish's options: choices, quantity and a note for the kitchen, then "Add to cart".
  * Opened from the menu, or from the cart with ?line= to change a line already in it.
  */
-export default function ItemScreen() {
+function ItemScreen() {
   const params = useLocalSearchParams<{ id: string; line?: string }>();
   const menu = useMenu();
   const { data: restaurant } = useRestaurant();
   const item = findMenuItem(menu.data, Number(params.id));
   const line = useCart((state) => state.lines.find((candidate) => candidate.id === params.line));
-  const titleId = useId();
+  // Ids from the dish rather than useId: on the web this screen is rendered on the server,
+  // and React's ids there don't match the browser's (see docs/DECISIONS.md).
+  const titleId = `item-${params.id}-title`;
 
   const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
@@ -79,6 +109,7 @@ export default function ItemScreen() {
 
   return (
     <SheetFrame onClose={close} labelledBy={item ? titleId : undefined}>
+      <PageHead page={itemPage(restaurant, menu.isPending ? undefined : item)} />
       {content}
     </SheetFrame>
   );
@@ -103,7 +134,7 @@ function ItemOptions({
   const reduceMotion = useReducedMotion();
   const scrollRef = useRef<ScrollView>(null);
   const groupY = useRef(new Map<number, number>());
-  const notesLabelId = useId();
+  const notesLabelId = `item-${item.id}-notes-label`;
   const [choices, setChoices] = useState(() => initialChoices(item, line?.optionIds ?? []));
   const [quantity, setQuantity] = useState(line?.quantity ?? 1);
   const [notes, setNotes] = useState(line?.notes ?? '');
@@ -170,6 +201,8 @@ function ItemOptions({
             contentFit="cover"
             transition={150}
             accessible={false}
+            // Decorative; on the web, expo-image takes alt="" from this.
+            accessibilityLabel=""
           />
         ) : null}
 
@@ -186,7 +219,7 @@ function ItemOptions({
             onPress={onClose}
             className={cn(
               'size-11 items-center justify-center rounded-full active:bg-accent',
-              Platform.select({ web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2' }),
+              Platform.select({ web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid' }),
             )}
           >
             <Icon as={X} className="size-6" />
@@ -259,7 +292,7 @@ function OptionGroup({
   onChange: (ids: number[]) => void;
   onLayout: (y: number) => void;
 }) {
-  const titleId = useId();
+  const titleId = `choice-group-${group.id}-title`;
   const single = group.max_select === 1;
   const full = !single && selected.length >= group.max_select;
 

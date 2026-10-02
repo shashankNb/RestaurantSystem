@@ -3,6 +3,7 @@
 namespace App\Data;
 
 use App\Models\DeliveryZone;
+use App\Models\DiningTable;
 use App\Models\PromoCode;
 
 /**
@@ -25,9 +26,11 @@ final readonly class Quote
         public int $gstCents,
         public ?PromoCode $promoCode,
         public ?DeliveryZone $deliveryZone,
-        /** How long until the food is ready (pickup) or delivered, for ASAP orders. */
+        /** How long until the food is ready (pickup, dine in) or delivered, for ASAP orders. */
         public int $estimatedMinutes,
         public array $errors,
+        /** Dine in: the table, when it's one of the restaurant's. */
+        public ?DiningTable $table = null,
     ) {}
 
     public function canPlaceOrder(): bool

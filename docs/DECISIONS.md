@@ -692,3 +692,244 @@ hours) and the account endpoints.
 193. **`public/storage` is a relative link** (`../storage/app/public`), so it resolves both in
     the container and from WSL. `storage:link --relative` needs `symfony/filesystem`, which
     isn't worth a package for one link; SETUP shows the `ln -s` command.
+
+### Dine in and table QR codes
+
+194. **Dine in is a third way to order**, beside pickup and delivery (`fulfilment_type:
+    dine_in`). The customer pays first, the kitchen takes it like any order, and staff bring it
+    to the table: Ready leads to **Served** (completed), never out for delivery.
+195. **Tables are listed in the back office** (Restaurant → Tables), so customers can only
+    choose a real table, and each table can have a printed QR code. A table can be turned off
+    (booked out) without deleting it. Labels are free text (12, A3, Patio 2), unique per
+    restaurant; "Add several" numbers a run of tables in one go.
+196. **Dine in is offered when switched on in Settings and at least one table is taking
+    orders.** The restaurant API lists the tables customers can choose.
+197. **A table's QR code opens `/table/{label}`** on the ordering site (`ORDERING_WEB_URL`), which
+    chooses dine in at that table and shows the menu. The label is in the link, so renaming a
+    table means printing its code again (the form says so). Unknown tables, and dine in turned
+    off, are explained instead.
+198. **QR codes are SVG**, made with `chillerlan/php-qrcode` (already installed for Filament's
+    two-factor codes; now a direct dependency), with medium error correction so a scuffed card
+    still scans. One per table in a dialog (with a download), or all of them on a printable
+    sheet.
+199. **Orders at a table are for now only**, while the restaurant is open and taking orders:
+    no times for later, and no "order ahead" suggestion when closed. No delivery fee or minimum;
+    promo codes apply. The ready-time estimate is the usual prep time.
+200. **The table is stored on the order twice**: its ID, and its label as it was when ordered,
+    so the order still says "table 12" if the table is later renamed or removed.
+201. **The kitchen card puts the table first** ("Table 12", large); the customer's screens say
+    "We'll bring it to table 12", "On its way to your table" and "Served". "Order again" keeps
+    the same table, for another round.
+202. **Contact details stay required at a table** (name, phone, email), as for any order: the
+    receipt goes to the email and the restaurant can reach the customer. Signed-in customers have
+    them filled in.
+
+### Apple Pay and Google Pay
+
+203. **The wallet button comes first, the card form stays.** On the web, Stripe's Express
+    Checkout Element shows Apple Pay (Safari) or Google Pay (Chrome) above the card form when the
+    browser has one ready; on iOS and Android, Stripe's native Apple Pay / Google Pay button sits
+    above "Place order". Either way it's one tap and Face ID or a fingerprint, with no card
+    number.
+204. **The wallet opens only when the checkout form is complete** (checked within the tap), and
+    the order is created after the customer approves the payment, exactly as for a card: the
+    same Idempotency-Key rules, amount check and webhook.
+205. **Wallets only in the express button**: Link, PayPal, Amazon Pay and Klarna stay out of it
+    (Klarna and other dashboard methods remain in the card form's tabs).
+206. **When there's no wallet** (no card in Wallet, an unsupported browser, or the web on
+    `localhost`, where Apple Pay can't run), the button simply doesn't show and checkout is as
+    before.
+
+## Phase 7: Web, SEO and polish
+
+### Server rendering
+
+207. **The website is rendered on the server for each request**, with Expo Router's server
+    rendering and data loaders (`web.output: 'server'`; both are experimental flags in SDK 57,
+    stable from SDK 58). Search engines and link previews get the current menu, prices and
+    opening hours in the HTML, and an owner's change shows up without a rebuild. Static
+    rendering, the spec's fallback, would have frozen the menu at build time. The site now
+    needs a server to run on: EAS Hosting provides it.
+208. **The menu (`/`) and dish pages (`/item/3`) have loaders** that fetch the restaurant and
+    menu from the API. The page's queries start from that data (TanStack Query `initialData`,
+    stamped with the time the server fetched it), so the browser hydrates exactly what the
+    server rendered and refreshes it on its usual schedule.
+209. **Only the page the browser asked for uses its loader's data.** Pages opened later in the
+    app keep using the query cache: calling `useLoaderData` there would fetch the loader from
+    the server again on every visit (opening a dish would wait on a round trip), and the menu
+    underneath a dish has no loader data of its own. iOS and Android never call loaders.
+210. **Each server render gets its own query cache**, so data loaded for one visitor's page can
+    never appear in another's. The browser and the apps keep their one shared cache.
+211. **If the server can't reach the API, the page still renders** (with its loading state)
+    and loads the data in the browser as before, with its error message and retry. The
+    loader logs the problem instead of failing the page.
+
+### Titles, share tags and search
+
+212. **Titles, descriptions and Open Graph tags are written into the HTML by each page's
+    `generateMetadata`.** Server rendering streams the page and doesn't include tags set with
+    `expo-router/head`; Expo recommends `generateMetadata` for server-rendered pages. The page
+    also renders the same tags with `<Head>` from `expo-router/head` (both come from one
+    description of the page, `src/lib/page-meta.ts`). The server marks its tags as `<Head>`'s
+    own, so after hydration `<Head>` takes them over instead of adding a second copy, and keeps
+    them right as visitors move around the app. On iOS and Android, `<Head>` isn't rendered.
+213. **Share links use the dish's photo, or the restaurant's cover photo or logo**, and a
+    description from the restaurant's settings (or one built from its pickup and delivery
+    options and suburb), cut to 160 characters.
+214. **Private pages stay out of search results** (`noindex`): the cart, checkout, order status,
+    account, the kitchen screens and table links, and a dish that's no longer on the menu.
+    `robots.txt` keeps crawlers out of `/staff`; `/sitemap.xml` lists the menu and every dish.
+215. **Canonical links, `og:url`, the sitemap and structured data use the site's public
+    address** (now the brand's `webUrl`, see 234; at first `EXPO_PUBLIC_WEB_URL`), so preview
+    deployments and other hostnames point search engines at the real site. Without it, pages
+    have no canonical link.
+216. **Structured data (JSON-LD) is in the menu page itself**: a schema.org `Restaurant`
+    (address, phone, email, logo and photos, opening hours and special hours, closed days as
+    00:00 to 00:00) and its `Menu` (sections; each dish with its price, availability and
+    diets). Dairy free has no schema.org diet of its own; it's given as the nearest, low
+    lactose.
+
+### Installing and branding
+
+217. **The site can be installed to a phone's home screen**: a web app manifest
+    (`/manifest.webmanifest`, an API route, so the name, description and colour follow the
+    restaurant's settings), icons for Android (including a maskable one) and iOS, the brand
+    colour for the browser's toolbar, and a short name for under the icon (the brand's
+    `shortName`, "Momo House"; see 233).
+218. **New brand icons**: a momo in cream on the brand maroon, replacing Expo's placeholder for
+    the app icon, Android adaptive icon (with a monochrome layer for themed icons), splash
+    screen, favicon and the website's icons. Each restaurant has its own, in its brand folder
+    (see 233).
+
+### Layout and size
+
+219. **From 1024 px wide, the cart sits beside the menu** (quantities and choices can be
+    changed there; "View cart" opens the full cart for the time, delivery, promo code and
+    checkout). Narrower screens keep the "View cart" bar. The panel is switched by CSS
+    breakpoints, not by measuring the window, so the server's HTML is the same at every width
+    and hydrates without a mismatch.
+220. **The app's icons are defined in `src/components/icons.ts`**, with Lucide's shapes and the
+    same component interface, instead of being imported from `lucide-react-native`, whose
+    index puts all of its 1,600 icons in the web bundle. With that, and importing only the
+    font weights the app uses, the web bundle went from 4.8 MB to 3.1 MB (905 KB to 728 KB
+    gzipped). The next largest parts, Reanimated (NativeWind's animations need it) and Zod,
+    stay.
+
+### Accessibility pass
+
+221. **Audited with axe-core** (WCAG 2.2 AA and best practices), in light and dark mode at
+    360 px and 1280 px: the menu, a dish, the cart, checkout, account and the kitchen sign-in
+    have no violations, every control is at least 44 px, keyboard focus is visible on every
+    control, and nothing animates with reduced motion. What it found and what changed:
+    - **Focus rings never showed on the web.** In Tailwind 4, `outline-none` also sets the
+      outline-style variable that `focus-visible:outline-2` reads, so the ring had no style.
+      Every control now adds `focus-visible:outline-solid`.
+    - Dish photos, the cover photo and the logo are decorative (the name is beside them) and
+      now say so to screen readers (`alt=""`, which expo-image takes from
+      `accessibilityLabel` on the web).
+    - Each screen is the page's `main` landmark, a screen's title is its `h1`, and the back
+      button is announced as a button.
+    - "Sign in" at checkout was a 27 px link inside a sentence; it's now a 44 px link of its
+      own.
+222. **Pages hydrate without mismatches**, so the browser takes over the server's HTML as it is.
+    What the server can't know stays out of the first render: the category chips' side margin
+    is worked out in CSS (it came from the window's width), and the dish screen's element ids
+    come from the dish. React's `useId` gives different ids on the server and in the browser
+    here, because Expo's server document puts `<html>` and `<body>` around the app; components
+    rendered on the server use ids from their data instead.
+223. **A table's link goes back to the menu underneath it** (`dismissTo('/')`) rather than
+    opening a second copy of the menu on top.
+224. **The menu arrives in two parts of the same response.** React sends a section larger than
+    about 25 KB (Expo's setting) after a placeholder and moves it into place with a small
+    inline script, before the app's code loads. Browsers, and search engines that run
+    JavaScript (Google, Bing), get the whole menu straight away, and link previews read the
+    tags in the `<head>`; only with JavaScript off does the menu stay hidden. This is React's
+    streaming under Expo's renderer, left as it is.
+
+## More restaurants
+
+225. **Each restaurant is paid into its own Stripe account**, with keys its owner enters in the
+    back office (Restaurant settings → Payments); the platform holds no money. Stripe Connect,
+    which would let the platform take a fee per order, was considered and not chosen for now.
+    The secret key and webhook signing secret are stored encrypted (Laravel's `encrypted`
+    cast, so they depend on `APP_KEY`), are never shown again once saved, and never appear in
+    an API response. The keys in `backend/.env` are now only the demo restaurant's, for local
+    development.
+226. **A restaurant takes orders only once all three keys are in**: publishable, secret, and
+    webhook signing secret (without the last, payments would go through but orders would never
+    reach the kitchen). Until then the API gives no publishable key, the checkout says the
+    restaurant isn't taking payments online, and an order request answers `503` before any
+    order is made.
+227. **The back office checks the keys as they're pasted**: a publishable key starts with `pk_`,
+    a secret key with `sk_` or `rk_`, both from the same mode (test or live). Keys pasted the
+    wrong way round are refused with a message saying so. **Check the keys** asks Stripe for the
+    account's name.
+228. **One webhook endpoint per restaurant** (`/stripe/webhook/{slug}`), verified with that
+    restaurant's signing secret. Owners choose their own secrets, so an event can only ever
+    affect its own restaurant's orders. Events are unique per restaurant: restaurants that share
+    a Stripe account each receive, and process, their own copy. The shared
+    `/stripe/webhook` address is gone.
+229. **The apps get the publishable key from the API** (`payments.stripe_publishable_key`),
+    instead of from `EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY` in each build. The key pair lives in one
+    place and can't be mismatched. On iOS and Android, Stripe's provider is always rendered and
+    is set up when the key arrives, so the app doesn't restart around it.
+230. **`php artisan restaurant:create` adds a restaurant** and makes someone its owner. It asks
+    for each detail or takes it as an option. A new owner gets an email with a link to choose a
+    password (Filament's password reset, now turned on, which also gives the sign-in page
+    "Forgot password?"); an existing account is linked to the new back office. The restaurant
+    starts with pickup only, no opening hours (so it shows as closed) and no Stripe keys.
+231. **Each restaurant's own domain is its web address**: tracking links in emails and table QR
+    codes use it (`Restaurant::webUrl()`), falling back to `ORDERING_WEB_URL`, and the API
+    allows it as a CORS origin. The list of domains is cached and cleared whenever a
+    restaurant is saved; `CORS_ALLOWED_ORIGINS` is now only for other addresses.
+232. **Emails carry the restaurant's name**, not the platform's: Laravel's mail layout is
+    overridden so its title, header and footer use the restaurant's name and website. In the
+    back office, the panel shows the current restaurant's name; `APP_NAME` remains the
+    platform's, on the sign-in page and owners' invitations.
+233. **A brand folder per restaurant for the apps.** `app/brands/<brand>/brand.json` holds the
+    app's name, short name, store identifiers, scheme, Apple merchant ID, colour, website and EAS
+    project, next to its icons. `public/brands/<brand>/` holds the website's icons, because Expo
+    serves one `public/` folder for every build. `BRAND` picks the folder (the demo by default)
+    for `expo start`, builds and exports; on EAS it's an environment variable of the
+    restaurant's own project.
+234. **The restaurant and its website come only from the brand**, not from
+    `EXPO_PUBLIC_RESTAURANT_SLUG` or `EXPO_PUBLIC_WEB_URL`. A value left in a local `.env` could
+    otherwise point one restaurant's build at another restaurant. Where the API and Reverb are
+    stays in `EXPO_PUBLIC_*` variables, the same for every restaurant.
+235. **Each restaurant has its own EAS project**: its own App Store and Google Play listings,
+    and its own website on EAS Hosting with its own domain. All the projects stay in one Expo
+    account, whose access token the API uses for every restaurant's push notifications.
+236. **Test keys are as good as live keys**, anywhere: a restaurant can take test payments on
+    its website and in its apps, store builds included, until it's ready to switch. The back
+    office only checks a key's prefix and that both keys are from the same mode, and says which
+    mode the restaurant is in (with a test card to try). On iOS and Android, Google Pay's test
+    environment follows the key (`pk_test_…`) rather than whether it's a development build.
+237. **A secret that can't be decrypted counts as missing** instead of failing every page that
+    reads the restaurant (a `Secret` cast in place of Laravel's `encrypted`). That happens when
+    a value is written straight into the database, or `APP_KEY` changes without
+    `APP_PREVIOUS_KEYS`; it's logged, the restaurant stops taking payments, and Payments asks
+    for the key again. A publishable key must start with `pk_` to count.
+
+### Apple Pay and Google Pay in each restaurant's Stripe account
+
+238. **Wallet buttons show wherever the browser can take them** (Stripe's `always`, in place of
+    `auto` from 206): Google Pay in Chrome and Edge even before the customer has saved a card,
+    Apple Pay in Safari, and Apple Pay in other browsers on computers through a QR code for the
+    customer's iPhone. Stripe still hides a wallet where it can't run. The card form below no
+    longer offers the wallets as tabs, so a wallet never shows twice.
+239. **The back office registers the restaurant's website with its Stripe account**, through
+    the restaurant's own secret key. Stripe requires the domain to be registered before it
+    shows a wallet, in test mode too, and an owner wouldn't know to do it. This happens when the
+    keys or the custom domain change, and when the owner presses **Check with Stripe** (which
+    replaces "Check the keys" from 227). `localhost`, IP addresses and `.test`, `.local` and
+    `.localhost` names are skipped, because Stripe can't register them.
+240. **Only the owner's click switches wallets on** in the Stripe account ("Turn on Apple Pay and
+    Google Pay", with a confirmation), because it changes the account's own payment method
+    settings, for everything that uses the account. Registering the domain only adds the domain,
+    so it happens without asking.
+241. **The checklist shows Stripe's last answer**, kept on the restaurant (`stripe_wallets`, with
+    when it was checked), so the settings page never waits on Stripe. Saving other settings
+    doesn't ask Stripe again. Stripe is asked after the save is committed, so the restaurant
+    isn't held locked while it answers. If it doesn't answer, the owner is told and the last
+    answer stays. A new secret key forgets the last answer, which may have been about another
+    Stripe account.

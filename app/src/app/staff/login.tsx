@@ -1,9 +1,11 @@
 import { Link, Redirect } from 'expo-router';
-import { CircleAlert } from 'lucide-react-native';
+import type { Metadata } from 'expo-router/server';
 import { useEffect } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 
 import { useSession } from '@/auth/session';
+import { CircleAlert } from '@/components/icons';
+import { PageHead } from '@/components/page-head';
 import { Screen } from '@/components/screen';
 import { SignInForm } from '@/components/sign-in-form';
 import { LoadingState } from '@/components/states';
@@ -14,9 +16,26 @@ import { useShift } from '@/kitchen/shift';
 import { useMe, useSignOut } from '@/lib/api/account';
 import { useRestaurant } from '@/lib/api/restaurant';
 import { config } from '@/lib/config';
+import { privatePage, toMetadata } from '@/lib/page-meta';
+
+const PAGE = privatePage('Kitchen sign-in');
+
+/** Web: the page's title in the server's HTML. It stays out of search results. */
+export function generateMetadata(): Metadata {
+  return toMetadata(PAGE);
+}
+
+export default function StaffLoginPage() {
+  return (
+    <>
+      <PageHead page={PAGE} />
+      <StaffLogin />
+    </>
+  );
+}
 
 /** Kitchen sign-in, for the restaurant's staff and owners. Signed-in staff go to the board. */
-export default function StaffLogin() {
+function StaffLogin() {
   const status = useSession((state) => state.status);
   const me = useMe();
   const signOut = useSignOut();

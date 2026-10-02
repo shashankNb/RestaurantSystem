@@ -36,7 +36,7 @@ export function SwitchRow({
       className={cn(
         'min-h-12 flex-row items-center gap-4 rounded-md py-2',
         Platform.select({
-          web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-2',
+          web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2',
         }),
         disabled && 'opacity-50',
       )}

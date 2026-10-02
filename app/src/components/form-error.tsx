@@ -1,5 +1,4 @@
-import { CircleAlert } from 'lucide-react-native';
-
+import { CircleAlert } from '@/components/icons';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 /** A problem with the whole form (not one field), such as "Those details didn't match". */

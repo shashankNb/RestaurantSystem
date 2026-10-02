@@ -32,6 +32,8 @@ it('renders every back office page for the demo restaurant', function (string $p
     'opening hours' => '/opening-hours',
     'special hours' => '/special-hours',
     'delivery zones' => '/delivery-zones',
+    'tables' => '/dining-tables',
+    'table QR codes' => '/dining-tables/print',
     'promo codes' => '/promo-codes',
     'staff' => '/staff',
 ]);

@@ -5,13 +5,13 @@ import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, type NativeStackNavigationOptions, type Theme } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { useSession } from '@/auth/session';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useNotificationTaps } from '@/lib/push';
-import { connectQueryManagers, queryClient } from '@/lib/query-client';
+import { connectQueryManagers, createQueryClient, queryClient } from '@/lib/query-client';
 import { StripeRoot } from '@/payments/StripeRoot';
 import { INK, PAGE } from '@/theme/brand';
 import { BrandTheme } from '@/theme/brand-theme';
@@ -50,6 +50,9 @@ export default function RootLayout() {
   const sessionRestored = useSession((state) => state.status !== 'restoring');
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const ready = (fontsLoaded || fontError !== null) && sessionRestored;
+  // A page rendered on the web server gets a cache of its own, so data loaded for one
+  // visitor's page never shows up in the next one's.
+  const [client] = useState(() => (Platform.OS === 'web' && typeof window === 'undefined' ? createQueryClient() : queryClient));
 
   useEffect(() => connectQueryManagers(), []);
 
@@ -70,7 +73,7 @@ export default function RootLayout() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={client}>
       <ThemeProvider value={navigationThemes[scheme]}>
         <BrandTheme>
           <StripeRoot>

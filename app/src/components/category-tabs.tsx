@@ -9,6 +9,13 @@ import { cn } from '@/lib/utils';
 const COLUMN = 768;
 
 /**
+ * Web: the same gutter in CSS, worked out from the bar's own width. The server renders the
+ * page without knowing the window's width, so a gutter measured in JavaScript would differ
+ * between its HTML and the browser's first render. (768 px is COLUMN.)
+ */
+const WEB_GUTTER = 'px-[max(16px,calc((100%_-_768px)/2_+_16px))]';
+
+/**
  * The menu's categories as a row of chips that sticks to the top while the menu scrolls.
  * The current category is filled; tapping one jumps to it.
  *
@@ -30,10 +37,11 @@ export function CategoryTabs({
 }) {
   const scrollRef = useRef<ScrollView>(null);
   const chipX = useRef(new Map<number, number>());
-  // The bar's own width: on the web the window's width includes the scrollbar.
+  // The bar's own width once measured (on the web the window's width includes the
+  // scrollbar); until then, the window's on iOS and Android. Used to scroll to a chip.
   const window = useWindowDimensions();
   const [measured, setMeasured] = useState<number | null>(null);
-  const gutter = Math.max(16, ((measured ?? window.width) - COLUMN) / 2 + 16);
+  const gutter = Math.max(16, ((measured ?? (Platform.OS === 'web' ? 0 : window.width)) - COLUMN) / 2 + 16);
 
   // Keep the current chip in view as the menu scrolls.
   useEffect(() => {
@@ -59,8 +67,8 @@ export function CategoryTabs({
         showsHorizontalScrollIndicator={false}
         role="tablist"
         aria-label="Menu categories"
-        contentContainerClassName="gap-2 py-2"
-        contentContainerStyle={{ paddingHorizontal: gutter }}
+        contentContainerClassName={cn('gap-2 py-2', Platform.select({ web: WEB_GUTTER }))}
+        contentContainerStyle={Platform.OS === 'web' ? undefined : { paddingHorizontal: gutter }}
       >
         {categories.map((category) => {
           const selected = category.id === active;
@@ -76,7 +84,7 @@ export function CategoryTabs({
                 'min-h-11 justify-center rounded-full px-4',
                 selected ? 'bg-foreground' : 'bg-muted active:bg-accent',
                 Platform.select({
-                  web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-2',
+                  web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2',
                 }),
               )}
             >

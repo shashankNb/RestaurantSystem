@@ -59,6 +59,12 @@ final class CheckoutService
             return $this->resume($existing, $fingerprint);
         }
 
+        // Paid into the restaurant's own Stripe account: until its keys are in, no order is
+        // started that couldn't be paid for.
+        if (! $restaurant->acceptsPayments()) {
+            throw PaymentsUnavailable::notConfigured();
+        }
+
         $quote = $this->pricing->quote($restaurant, $cart, $now);
 
         if (! $quote->canPlaceOrder()) {
@@ -83,7 +89,7 @@ final class CheckoutService
 
         $paymentIntent = $order->stripe_payment_intent_id === null
             ? $this->attachPaymentIntent($order)
-            : $this->payments->retrievePaymentIntent($order->stripe_payment_intent_id);
+            : $this->payments->retrievePaymentIntent($order->loadMissing('restaurant'));
 
         return new Checkout($order, $paymentIntent, created: false);
     }
@@ -104,7 +110,7 @@ final class CheckoutService
             $order->refresh();
 
             if ($order->stripe_payment_intent_id !== null) {
-                return $this->payments->retrievePaymentIntent($order->stripe_payment_intent_id);
+                return $this->payments->retrievePaymentIntent($order->loadMissing('restaurant'));
             }
 
             $paymentIntent = $this->payments->createPaymentIntent($order->loadMissing('restaurant'), "order-{$order->public_id}");
@@ -135,6 +141,8 @@ final class CheckoutService
                 'delivery_state' => $delivery ? $customer->deliveryState : null,
                 'delivery_postcode' => $delivery ? $quote->cart->postcode : null,
                 'delivery_instructions' => $delivery ? $customer->deliveryInstructions : null,
+                'dining_table_id' => $quote->table?->id,
+                'table_label' => $quote->table?->label,
                 'subtotal_cents' => $quote->subtotalCents,
                 'delivery_fee_cents' => $quote->deliveryFeeCents,
                 'discount_cents' => $quote->discountCents,

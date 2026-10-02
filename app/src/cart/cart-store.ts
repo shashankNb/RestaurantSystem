@@ -29,6 +29,8 @@ interface CartState {
   /** ISO time from /slots, or null for as soon as possible. */
   scheduledFor: string | null;
   promoCode: string | null;
+  /** Dine in: the table's label, chosen in the cart or by the table's QR code. */
+  table: string | null;
   add: (line: NewCartLine) => void;
   replace: (id: string, line: NewCartLine) => void;
   setQuantity: (id: string, quantity: number) => void;
@@ -38,6 +40,7 @@ interface CartState {
   setPostcode: (postcode: string | null) => void;
   setScheduledFor: (scheduledFor: string | null) => void;
   setPromoCode: (promoCode: string | null) => void;
+  setTable: (table: string | null) => void;
 }
 
 export const MAX_QUANTITY = 50;
@@ -58,6 +61,7 @@ export const useCart = create<CartState>()(
       postcode: null,
       scheduledFor: null,
       promoCode: null,
+      table: null,
 
       add: (line) =>
         set((state) => {
@@ -95,6 +99,7 @@ export const useCart = create<CartState>()(
       setPostcode: (postcode) => set({ postcode }),
       setScheduledFor: (scheduledFor) => set({ scheduledFor }),
       setPromoCode: (promoCode) => set({ promoCode }),
+      setTable: (table) => set({ table }),
     }),
     {
       name: `cart:${config.restaurantSlug}`,

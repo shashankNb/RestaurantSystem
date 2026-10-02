@@ -207,6 +207,19 @@ describe('emails', function () {
             ->assertSeeInHtml("https://order.example.test/order/{$order->public_id}?token={$order->tracking_token}", false);
     });
 
+    it('carries the restaurant’s own name and website, not the platform’s', function () {
+        config(['app.name' => 'Order Platform']);
+        $this->menu->restaurant->update(['custom_domain' => 'order.momo.test']);
+        $order = orderWithItems($this->menu, ['rejection_reason' => 'We’ve run out of pork'], 'rejected');
+
+        foreach ([new OrderPlaced($order), new OrderCancelled($order)] as $mail) {
+            $mail->assertSeeInHtml('href="https://order.momo.test"', false)
+                ->assertSeeInHtml('© '.date('Y').' Himalayan Momo House.', false)
+                ->assertDontSeeInHtml('Order Platform')
+                ->assertDontSeeInText('Order Platform');
+        }
+    });
+
     it('explains a rejection and the refund', function () {
         $order = orderWithItems($this->menu, ['rejection_reason' => 'We’ve run out of pork'], 'rejected');
 

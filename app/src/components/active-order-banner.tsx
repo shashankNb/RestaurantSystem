@@ -1,8 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'expo-router';
-import { ChevronRight } from 'lucide-react-native';
 import { Platform, Pressable, View } from 'react-native';
 
+import { ChevronRight } from '@/components/icons';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { FINAL_STATUSES, orderQueryKey, useOrder } from '@/lib/api/orders';
@@ -42,7 +42,7 @@ function Banner({ publicId, trackingToken, timeZone }: { publicId: string; track
       <Pressable
         className={cn(
           'bg-muted flex-row items-center gap-3 rounded-md px-4 py-3 active:bg-accent',
-          Platform.select({ web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-2' }),
+          Platform.select({ web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2' }),
         )}
       >
         <View className="flex-1 gap-0.5">

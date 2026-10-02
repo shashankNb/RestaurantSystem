@@ -58,6 +58,7 @@ class QuoteResource extends JsonResource
                 'type' => $quote->cart->fulfilmentType->value,
                 'estimated_minutes' => $quote->estimatedMinutes,
                 'delivery_zone' => $quote->deliveryZone === null ? null : new DeliveryZoneResource($quote->deliveryZone),
+                'table' => $quote->table?->label,
             ],
             'scheduled_for' => $quote->cart->scheduledFor?->toIso8601ZuluString(),
             'errors' => array_map(fn (QuoteError $error): array => [

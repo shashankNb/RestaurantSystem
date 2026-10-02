@@ -49,6 +49,8 @@ use Illuminate\Support\Carbon;
     'delivery_state',
     'delivery_postcode',
     'delivery_instructions',
+    'dining_table_id',
+    'table_label',
     'subtotal_cents',
     'delivery_fee_cents',
     'discount_cents',
@@ -137,6 +139,17 @@ class Order extends Model
     public function promoCode(): BelongsTo
     {
         return $this->belongsTo(PromoCode::class);
+    }
+
+    /**
+     * The table a dine-in order goes to (null once the table is removed; table_label keeps
+     * its name).
+     *
+     * @return BelongsTo<DiningTable, $this>
+     */
+    public function diningTable(): BelongsTo
+    {
+        return $this->belongsTo(DiningTable::class);
     }
 
     /**

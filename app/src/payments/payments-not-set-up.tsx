@@ -1,18 +1,21 @@
-import { CircleAlert } from 'lucide-react-native';
 import { View } from 'react-native';
 
+import { CircleAlert } from '@/components/icons';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 
-/** Shown in place of the payment form when this build has no Stripe publishable key. */
+/**
+ * Shown in place of the payment form while the restaurant can't take payments online: its
+ * owner hasn't entered all its Stripe keys yet (back office, Restaurant settings → Payments).
+ */
 export function PaymentsNotSetUp() {
   return (
     <View className="gap-3">
       <Alert icon={CircleAlert} variant="destructive">
         <AlertDescription>
-          Payments aren’t set up in this build, so orders can’t be placed yet. Add the Stripe publishable key to
-          app/.env and restart Expo.
+          This restaurant isn’t taking payments online yet, so orders can’t be placed here. Call the restaurant to
+          order.
         </AlertDescription>
       </Alert>
       <Button size="lg" disabled>

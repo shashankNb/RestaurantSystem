@@ -1,8 +1,10 @@
-import { Bell } from 'lucide-react-native';
+import type { Metadata } from 'expo-router/server';
 import { useState } from 'react';
 import { Platform, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from 'react-native';
 
+import { Bell } from '@/components/icons';
 import { OrderCard } from '@/components/kitchen/order-card';
+import { PageHead } from '@/components/page-head';
 import { ErrorState, LoadingState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -13,6 +15,7 @@ import { errorMessage } from '@/lib/api/client';
 import { useRestaurant } from '@/lib/api/restaurant';
 import type { OrderStatus, StaffOrder } from '@/lib/api/schemas';
 import { useStaffOrders } from '@/lib/api/staff';
+import { privatePage, toMetadata } from '@/lib/page-meta';
 import { cn } from '@/lib/utils';
 
 type ColumnKey = 'new' | 'preparing' | 'ready' | 'out';
@@ -27,11 +30,27 @@ const COLUMNS: { key: ColumnKey; title: string; statuses: OrderStatus[]; empty: 
 /** Columns side by side from this width (a tablet in landscape); below it, one at a time. */
 const WIDE = 900;
 
+const PAGE = privatePage('Orders');
+
+/** Web: the page's title in the server's HTML. It stays out of search results. */
+export function generateMetadata(): Metadata {
+  return toMetadata(PAGE);
+}
+
+export default function OrdersBoardPage() {
+  return (
+    <>
+      <PageHead page={PAGE} />
+      <OrdersBoard />
+    </>
+  );
+}
+
 /**
  * The live order board: New, Preparing, Ready and Out for delivery. It opens on "Start
  * shift", because browsers only play sound after a tap, and that tap also keeps the screen on.
  */
-export default function OrdersBoard() {
+function OrdersBoard() {
   const { started, startShift } = useKitchen();
   const orders = useStaffOrders();
   const { data: restaurant } = useRestaurant();
@@ -121,7 +140,7 @@ export default function OrdersBoard() {
               className={cn(
                 'min-h-11 flex-row items-center gap-2 rounded-full px-4',
                 selected ? 'bg-foreground' : 'bg-muted active:bg-accent',
-                Platform.select({ web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-2' }),
+                Platform.select({ web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2' }),
               )}
             >
               <Text className={cn('font-body-semibold', selected ? 'text-background' : 'text-foreground')}>{definition.title}</Text>

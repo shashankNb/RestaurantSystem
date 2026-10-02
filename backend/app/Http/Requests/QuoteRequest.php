@@ -31,6 +31,7 @@ class QuoteRequest extends FormRequest
             'items.*.modifier_option_ids.*' => ['integer'],
             'items.*.notes' => ['nullable', 'string', 'max:200'],
             'postcode' => ['nullable', 'required_if:fulfilment_type,delivery', 'string', 'regex:/^\d{4}$/'],
+            'table' => ['nullable', 'required_if:fulfilment_type,dine_in', 'string', 'max:20'],
             'scheduled_for' => ['nullable', 'date'],
             'promo_code' => ['nullable', 'string', 'max:40'],
         ];
@@ -48,13 +49,14 @@ class QuoteRequest extends FormRequest
             'items.*.quantity.max' => 'You can order up to 50 of an item. For bigger orders, call the restaurant.',
             'postcode.required_if' => 'Enter your postcode so we can check we deliver to you.',
             'postcode.regex' => 'Enter a 4-digit postcode, like 3006.',
+            'table.required_if' => 'Choose your table.',
             'scheduled_for.date' => 'Choose one of the times offered.',
         ];
     }
 
     public function cart(): Cart
     {
-        /** @var array{fulfilment_type: string, items: list<array{menu_item_id: int|string, quantity: int|string, modifier_option_ids?: list<int|string>|null, notes?: string|null}>, postcode?: string|null, scheduled_for?: string|null, promo_code?: string|null} $validated */
+        /** @var array{fulfilment_type: string, items: list<array{menu_item_id: int|string, quantity: int|string, modifier_option_ids?: list<int|string>|null, notes?: string|null}>, postcode?: string|null, scheduled_for?: string|null, promo_code?: string|null, table?: string|null} $validated */
         $validated = $this->validated();
 
         return Cart::fromValidated($validated);

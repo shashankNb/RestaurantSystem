@@ -15,7 +15,7 @@ const buttonVariants = cva(
   cn(
     "group shrink-0 flex-row items-center justify-center gap-2 rounded-md",
     Platform.select({
-      web: "focus-visible:outline-ring whitespace-nowrap outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-5 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+      web: "focus-visible:outline-ring whitespace-nowrap outline-none transition-colors focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-5 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     }),
   ),
   {

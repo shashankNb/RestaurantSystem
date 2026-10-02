@@ -19,7 +19,7 @@ function Textarea({
         "text-foreground border-input bg-background font-body flex min-h-24 w-full flex-row rounded-md border px-3 py-2.5 text-base",
         invalid && "border-destructive border-2",
         Platform.select({
-          web: "placeholder:text-muted-foreground focus-visible:outline-ring field-sizing-content resize-y outline-none focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed",
+          web: "placeholder:text-muted-foreground focus-visible:outline-ring field-sizing-content resize-y outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 disabled:cursor-not-allowed",
           native: "placeholder:text-muted-foreground",
         }),
         props.editable === false && "opacity-50",

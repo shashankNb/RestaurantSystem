@@ -75,6 +75,9 @@ class OrderInfolist
                         TextEntry::make('customer_email')
                             ->label('Email')
                             ->placeholder('—'),
+                        TextEntry::make('table_label')
+                            ->label('Table')
+                            ->visible(fn (Order $record): bool => $record->fulfilment_type === FulfilmentType::DineIn),
                         TextEntry::make('delivery_line1')
                             ->label('Deliver to')
                             ->state(fn (Order $record): string => implode(', ', array_filter([

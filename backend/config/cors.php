@@ -22,10 +22,14 @@ return [
 
     // The ordering website's origins, comma-separated (the Expo dev server locally,
     // https://example-restaurant.com.au in production). Native apps don't send an Origin.
-    'allowed_origins' => array_values(array_filter(array_map(
+    // CORS_ALLOWED_ORIGINS (local development, preview addresses). Each restaurant's own
+    // domain is added to this on each request (App\Http\Middleware\AllowRestaurantOrigins).
+    'configured_origins' => $configured = array_values(array_filter(array_map(
         'trim',
-        explode(',', (string) env('CORS_ALLOWED_ORIGINS', 'http://localhost:8081')),
+        explode(',', (string) env('CORS_ALLOWED_ORIGINS', 'http://localhost:8081, https://food.plexuslogics.com')),
     ))),
+
+    'allowed_origins' => $configured,
 
     'allowed_origins_patterns' => [],
 

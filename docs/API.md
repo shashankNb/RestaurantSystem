@@ -54,7 +54,7 @@ failures (HTTP 422).
 | [`POST /restaurants/{slug}/orders/quote`](#post-restaurantsslugordersquote) | Public, 60 a minute | Built (phase 2) |
 | [`POST /restaurants/{slug}/orders`](#post-restaurantsslugorders) | Public, `Idempotency-Key` header, 10 a minute | Built (phase 3) |
 | [`GET /orders/{public_id}?token=…`](#get-orderspublic_idtoken) | Tracking token, or the customer | Built (phase 3) |
-| [`POST /stripe/webhook`](#post-stripewebhook) | Stripe (signature verified) | Built (phase 3) |
+| [`POST /stripe/webhook/{slug}`](#post-stripewebhookslug) | Stripe (signature verified) | Built (phase 3; one per restaurant since phase 7) |
 | [`POST /auth/register`](#post-authregister) | Public | Built (phase 4) |
 | [`POST /auth/login`](#post-authlogin) | Public | Built (phase 4) |
 | [`POST /auth/logout`](#post-authlogout) | Signed in | Built (phase 4) |
@@ -129,7 +129,8 @@ Accept: application/json
                         "estimated_minutes": 45
                     }
                 ]
-            }
+            },
+            "dine_in": { "enabled": true, "tables": ["1", "2", "3", "12", "Patio 1"] }
         },
         "opening_hours": [
             { "day_of_week": 1, "opens_at": "17:00", "closes_at": "22:00" },
@@ -137,7 +138,8 @@ Accept: application/json
         ],
         "special_hours": [
             { "date": "2026-10-20", "is_closed": false, "opens_at": "12:00", "closes_at": "15:00", "note": "Lunch only" }
-        ]
+        ],
+        "payments": { "stripe_publishable_key": "pk_live_51…" }
     }
 }
 ```
@@ -156,6 +158,9 @@ Accept: application/json
   6 for Saturday. A day can have several shifts.
 - `special_hours`: holidays and one-off changes in the next 30 days. `is_closed` is true
   for a closure, with null times.
+- `payments.stripe_publishable_key`: the restaurant's own Stripe account, for the apps'
+  payment forms. Null until its owner has entered all its keys in the back office; until then
+  placing an order answers `503`.
 
 `404` `{"message": "Not found."}` for an unknown slug.
 
@@ -223,8 +228,9 @@ Nothing is cached: a sold-out switch shows on the next request.
 ### `GET /restaurants/{slug}/slots`
 
 When the customer can have their order: as soon as possible, or one of the times a cart can
-offer for later. Query parameters: `fulfilment_type` (`pickup` or `delivery`, required) and,
-for delivery, `postcode` (optional; the delivery time depends on the zone).
+offer for later. Query parameters: `fulfilment_type` (`pickup`, `delivery` or `dine_in`,
+required) and, for delivery, `postcode` (optional; the delivery time depends on the zone).
+Dine in is for now only, so its `slots` is always empty.
 
 ```http
 GET /api/v1/restaurants/himalayan-momo-house/slots?fulfilment_type=pickup
@@ -305,8 +311,9 @@ Content-Type: application/json
 
 | Field | Rules |
 |---|---|
-| `fulfilment_type` | Required: `pickup` or `delivery` |
+| `fulfilment_type` | Required: `pickup`, `delivery` or `dine_in` (at one of the restaurant's tables) |
 | `postcode` | Required for delivery; 4 digits |
+| `table` | Required for dine in: one of `fulfilment.dine_in.tables`, any case |
 | `scheduled_for` | Null for as soon as possible, or an ISO 8601 time from `/slots` |
 | `promo_code` | Optional; any case |
 | `items` | 1 to 30 lines |
@@ -364,7 +371,8 @@ Content-Type: application/json
                 "fee_cents": 600,
                 "min_order_cents": 2500,
                 "estimated_minutes": 45
-            }
+            },
+            "table": null
         },
         "scheduled_for": null,
         "errors": [
@@ -401,12 +409,13 @@ says how to fix it, and the `field` it concerns. Line errors also appear in that
 | `option_sold_out` | `items.N.modifier_option_ids` | A chosen option is sold out |
 | `too_few_options` | `items.N.modifier_option_ids` | Fewer choices in a group than its `min_select` |
 | `too_many_options` | `items.N.modifier_option_ids` | More choices in a group than its `max_select` |
-| `fulfilment_unavailable` | `fulfilment_type` | Pickup is switched off |
+| `fulfilment_unavailable` | `fulfilment_type` | Pickup is switched off, or dine in is off or has no tables taking orders |
+| `unknown_table` | `table` | Dine in at a table the restaurant doesn't have, or has turned off |
 | `not_deliverable` | `postcode` | Delivery is off, or the postcode isn't in an active zone |
 | `below_minimum` | `items` | The food subtotal is under the zone's minimum (before any discount) |
 | `closed` | `scheduled_for` | ASAP while outside opening hours; the message says when it next opens |
 | `paused` | `scheduled_for` | ASAP while ordering is paused |
-| `invalid_time` | `scheduled_for` | A scheduled time that `/slots` doesn't offer |
+| `invalid_time` | `scheduled_for` | A scheduled time that `/slots` doesn't offer, or any time for dine in (it's for now) |
 | `promo_invalid` | `promo_code` | Unknown, switched off, not started, expired, used up, or below the code's minimum order |
 
 `422` (the standard validation error) for a malformed cart: no items, a missing or bad
@@ -496,7 +505,9 @@ Keep `tracking_token`: it's how a guest follows the order. Retries are safe:
   set up. Try again in a few seconds."
 - **A cart that can't be ordered** (closed, paused, sold out, outside the delivery area, below
   the minimum, a bad promo code): `422`, with the quote's messages under `errors`, keyed by field.
-- **Stripe unreachable or not configured:** `503`. Retry with the same key; the order is kept.
+- **Stripe unreachable:** `503`. Retry with the same key; the order is kept.
+- **The restaurant has no Stripe keys yet:** `503` "This restaurant isn’t taking payments online
+  yet.", before any order is made.
 
 ### `GET /orders/{public_id}?token=…`
 
@@ -512,6 +523,7 @@ out, because a tracking link can be forwarded.
         "status": "accepted",
         "payment_status": "paid",
         "fulfilment_type": "delivery",
+        "table": null,
         "scheduled_for": null,
         "estimated_ready_at": "2026-10-05T07:20:00Z",
         "placed_at": "2026-10-05T07:00:12Z",
@@ -555,18 +567,24 @@ out, because a tracking link can be forwarded.
 }
 ```
 
-`order_number` is null until the order is paid. Names and prices in `items` are as ordered;
+`order_number` is null until the order is paid. `table` is the table for a dine-in order (as it
+was called when ordered), otherwise null. Names and prices in `items` are as ordered;
 `menu_item_id` and `modifier_option_id` point at the menu (for "Order again") and are null
 once that dish or option has been deleted.
 
-### `POST /stripe/webhook`
+### `POST /stripe/webhook/{slug}`
 
-For Stripe only. The `Stripe-Signature` header must be a valid signature of the raw body with
-`STRIPE_WEBHOOK_SECRET`, made within the last 5 minutes; otherwise `400`. The platform acts on
-`payment_intent.succeeded` (the order is paid and placed) and `payment_intent.payment_failed`
-(noted; the customer can try another card), and acknowledges any other event. Each event is
-stored once, by its ID: a replay gets `200` with `"duplicate": true` and changes nothing. A
-payment that arrives after its checkout was cancelled is refunded automatically.
+For Stripe only: each restaurant's own Stripe account sends its events to its own endpoint,
+which its back office shows (Restaurant settings → Payments). The `Stripe-Signature` header
+must be a valid signature of the raw body with that restaurant's webhook signing secret, made
+within the last 5 minutes; otherwise `400`. An unknown slug is `404`.
+
+The platform acts on `payment_intent.succeeded` (the order is paid and placed) and
+`payment_intent.payment_failed` (noted; the customer can try another card), and acknowledges
+any other event. An event only ever affects that restaurant's orders. Each event is stored
+once per restaurant, by its ID: a replay gets `200` with `"duplicate": true` and changes
+nothing (restaurants sharing a Stripe account each get their own copy). A payment that
+arrives after its checkout was cancelled is refunded automatically.
 
 Events are processed during the request, so a paid order reaches the kitchen within a second.
 If processing fails, Stripe still gets `200` and the event is retried on the queue (five
@@ -633,6 +651,7 @@ The orders the kitchen still has to act on (`placed`, `accepted`, `preparing`, `
             "status": "placed",
             "payment_status": "paid",
             "fulfilment_type": "delivery",
+            "table": null,
             "scheduled_for": null,
             "placed_at": "2026-10-05T07:00:12Z",
             "accept_by": "2026-10-05T07:10:12Z",

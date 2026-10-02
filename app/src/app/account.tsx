@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Link } from 'expo-router';
-import { CircleCheck } from 'lucide-react-native';
+import type { Metadata } from 'expo-router/server';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
@@ -8,7 +8,9 @@ import { z } from 'zod';
 
 import { useSession } from '@/auth/session';
 import { FormError } from '@/components/form-error';
+import { CircleCheck } from '@/components/icons';
 import { OrderHistory } from '@/components/order-history';
+import { PageHead } from '@/components/page-head';
 import { SavedAddresses } from '@/components/saved-addresses';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
@@ -23,6 +25,7 @@ import { Text } from '@/components/ui/text';
 import { useDeleteAccount, useMe, useRegister, useSignOut } from '@/lib/api/account';
 import { errorMessage } from '@/lib/api/client';
 import { applyServerErrors } from '@/lib/forms';
+import { privatePage, toMetadata } from '@/lib/page-meta';
 
 const email = z.email('Enter your email address, like name@example.com.');
 
@@ -35,11 +38,27 @@ const registerSchema = z.object({
 
 type RegisterValues = z.infer<typeof registerSchema>;
 
+const PAGE = privatePage('Account');
+
+/** Web: the page's title in the server's HTML. It stays out of search results. */
+export function generateMetadata(): Metadata {
+  return toMetadata(PAGE);
+}
+
+export default function AccountPage() {
+  return (
+    <>
+      <PageHead page={PAGE} />
+      <AccountScreen />
+    </>
+  );
+}
+
 /**
  * Sign in or create an account; once signed in, the account's details, past orders and
  * saved addresses.
  */
-export default function AccountScreen() {
+function AccountScreen() {
   const status = useSession((state) => state.status);
   const [notice, setNotice] = useState<string | null>(null);
 

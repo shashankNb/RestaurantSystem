@@ -4,7 +4,6 @@ namespace App\Providers;
 
 use App\Payments\PaymentGateway;
 use App\Payments\StripePaymentGateway;
-use App\Payments\StripeWebhook;
 use Filament\Resources\Resource;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
@@ -21,20 +20,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(PaymentGateway::class, fn (): PaymentGateway => new StripePaymentGateway(
-            self::stringConfig('services.stripe.secret'),
-        ));
-
-        $this->app->singleton(StripeWebhook::class, fn (): StripeWebhook => new StripeWebhook(
-            self::stringConfig('services.stripe.webhook_secret'),
-        ));
-    }
-
-    private static function stringConfig(string $key): ?string
-    {
-        $value = config($key);
-
-        return is_string($value) && $value !== '' ? $value : null;
+        // Each order brings its restaurant's own Stripe keys (see StripePaymentGateway).
+        $this->app->singleton(PaymentGateway::class, StripePaymentGateway::class);
     }
 
     /**

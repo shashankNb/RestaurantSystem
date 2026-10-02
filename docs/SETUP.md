@@ -154,29 +154,34 @@ After pulling this change the first time, start the new container with `sail up 
 
 ### Stripe (test mode) and webhooks
 
+Each restaurant is paid into its own Stripe account, with the keys its owner enters in the back
+office (Restaurant settings → **Payments**). The apps get the publishable key from the API, so
+`app/.env` has no Stripe key. Locally, the demo restaurant takes its keys from `backend/.env`:
+
 1. In the Stripe dashboard, in test mode, copy the keys from Developers → API keys:
    ```dotenv
    # backend/.env
    STRIPE_KEY=pk_test_…      # publishable key
-   STRIPE_SECRET=sk_test_…   # secret key: only ever here
-   # app/.env
-   EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_…
+   STRIPE_SECRET=sk_test_…   # secret key
    ```
-   Restart `npx expo start` after changing `app/.env`.
 2. Install the [Stripe CLI](https://docs.stripe.com/stripe-cli) and sign in with `stripe login`.
-3. Forward webhooks to your local API while you work:
+3. Forward webhooks to the demo restaurant's endpoint while you work:
    ```bash
-   stripe listen --forward-to localhost/api/v1/stripe/webhook \
+   stripe listen --forward-to localhost/api/v1/stripe/webhook/himalayan-momo-house \
      --events payment_intent.succeeded,payment_intent.payment_failed
    ```
    It prints a signing secret (`whsec_…`). Put it in `backend/.env` as
    `STRIPE_WEBHOOK_SECRET`. It stays the same between runs on the same machine.
-4. Pay with the test card `4242 4242 4242 4242`, any future expiry date, any CVC and any postcode.
+4. Give the demo restaurant the keys: `sail artisan db:seed --class=DemoRestaurantSeeder`. It
+   skips keys that look the wrong way round (`STRIPE_KEY` must start with `pk_`). You can
+   instead enter them in the back office, which checks them too and has a **Check with Stripe**
+   button.
+5. Pay with the test card `4242 4242 4242 4242`, any future expiry date, any CVC and any postcode.
    `4000 0025 0000 3155` asks for a bank check (3-D Secure) and `4000 0000 0000 9995` is declined.
 
-Without keys, placing an order answers `503` "Payments aren’t set up yet", and the app's
-checkout says payments aren't set up. Tests never call Stripe: they use a fake gateway and sign
-webhooks with a test secret.
+Until a restaurant has all three keys (publishable, secret, webhook signing secret), placing an
+order answers `503` "This restaurant isn’t taking payments online yet", and the app's checkout
+says so. Tests never call Stripe: they use a fake gateway and sign webhooks with a test secret.
 
 Without `stripe listen` running, payments succeed but orders stay at "Confirming your payment"
 until the webhook arrives, because the webhook is what marks an order paid.
@@ -218,7 +223,15 @@ npx expo start --web    # opens http://localhost:8081
 ```
 
 The web build needs no Expo account or native tools. The backend must be running: the app
-loads the restaurant, its menu and prices from the API. You can browse the menu, build a cart,
+loads the restaurant, its menu and prices from the API.
+
+Pages are rendered on the server for each request, as in production: the dev server fetches
+the restaurant and menu from `EXPO_PUBLIC_API_URL` itself and sends the finished menu, which
+the browser then takes over. View the page source to see what search engines get: the menu,
+the title and share tags, and the restaurant's structured data. If the API is down, pages
+still load and say so. After changing `app.config.ts` or `.env`, restart with
+`npx expo start --web --clear`: both are compiled into the code, and Metro's cache would keep
+the old values. You can browse the menu, build a cart,
 check out (with Stripe test keys, see above), and follow the order live. Sign in with a demo
 account to see order history and saved addresses.
 
@@ -230,8 +243,8 @@ To try the whole order flow on one machine:
 3. Accept it in the back office at `http://localhost/admin` (or with the staff API) and watch
    the order screen update without a refresh.
 
-Stripe's Payment Element can offer Apple Pay in Safari and Google Pay in Chrome only over HTTPS
-with a registered domain; on `localhost` it shows the card form.
+Apple Pay and Google Pay don't show on `localhost`, only the card form (see
+[Apple Pay and Google Pay](#apple-pay-and-google-pay)).
 
 ### Android and iOS (development builds)
 
@@ -243,7 +256,7 @@ Rebuild only after adding a native package or changing `app.config.ts`.
    ```bash
    npm install --global eas-cli
    eas login
-   eas init                # creates the EAS project; put its id in .env as EAS_PROJECT_ID
+   eas init                # creates the EAS project; put its id in brands/<brand>/brand.json as easProjectId
    ```
 2. Build and install:
    - **Android emulator or phone:** `eas build --profile development --platform android`, then
@@ -283,24 +296,62 @@ On a tablet in landscape (900 px wide or more) the four columns sit side by side
 one at a time. The alert sound needs `expo-audio`, a native module: rebuild your development
 build after pulling this change.
 
+### Dine in and table QR codes
+
+Customers can order from their table: in the cart they choose **Dine in** and their table, or
+they scan the QR code on the table, which opens the menu with that table chosen. The order
+goes to the kitchen like any other; staff bring it over and mark it **Served**.
+
+1. In the back office, turn on **Offer dine in** (Settings), then add your tables under
+   Restaurant → **Tables** ("Add several" numbers a run of them). The demo restaurant has tables
+   1–12.
+2. The QR codes link to the restaurant's own website: its domain in Restaurant settings, or else
+   `ORDERING_WEB_URL` in `backend/.env`. Locally that's `http://localhost:8081`, which a phone
+   can't open: to try it with a real phone, use your computer's LAN address (for example
+   `ORDERING_WEB_URL=http://192.168.1.20:8081`, and add that origin to `CORS_ALLOWED_ORIGINS`).
+3. **Print QR codes** on the Tables page gives a sheet with every table's code; each table's
+   **QR code** button shows one, with a download.
+
+Without a phone, open `http://localhost:8081/table/5` to see what scanning table 5's code does.
+
+### Apple Pay and Google Pay
+
+At checkout an Apple Pay or Google Pay button sits above the card form wherever the customer
+has one set up: one tap, no card number. Where there isn't one, only the card form shows.
+
+- **Web:** the buttons show wherever the browser can take the wallet, even before the
+  customer has added a card: Google Pay in Chrome and Edge, Apple Pay in Safari, and Apple Pay
+  in other browsers on computers through a QR code the customer scans with their iPhone. That
+  needs HTTPS and the website's domain registered with the restaurant's Stripe account, which
+  the back office does by itself (Restaurant settings → Payments, where a checklist also shows
+  whether Apple Pay and Google Pay are on in the Stripe account). Stripe can't register
+  `localhost`, so `http://localhost:8081` shows only the card form; the deployed site shows
+  the wallets.
+- **iOS app:** needs the Apple Merchant ID (see Payments on iOS and Android below), a
+  development build, and a device (or simulator) with a card in Wallet.
+- **Android app:** Google Pay works with a card in Google Wallet. With test keys it uses Google's
+  test environment, in any build, so no real charge is made.
+
 ### Payments on iOS and Android
 
 PaymentSheet takes cards with the publishable key alone. For the wallets:
 
 - **Apple Pay** needs an Apple Merchant ID (Apple Developer → Identifiers → Merchant IDs, for
-  example `merchant.au.com.examplerestaurant.ordering`), added to Stripe (Settings → Payment
-  methods → Apple Pay → iOS certificate). Put it in `.env` as `APP_APPLE_MERCHANT_ID` (the
-  default is `merchant.` plus the bundle ID) and rebuild: the config plugin adds it to the
-  app's entitlements.
-- **Google Pay** is enabled in the build and uses Google's test environment in development
-  builds. Turn it on in Stripe (Settings → Payment methods) for the live app.
+  example `merchant.au.com.examplerestaurant.ordering`), added to the restaurant's Stripe
+  account (Settings → Payment methods → Apple Pay → iOS certificate). Put it in the brand's
+  `brand.json` as `appleMerchantId` and rebuild: the config plugin adds it to the app's
+  entitlements.
+- **Google Pay** is enabled in the build. It uses Google's test environment whenever the
+  restaurant's keys are test keys, and the real one with live keys. It also has to be on in the
+  restaurant's Stripe account: **Turn on Apple Pay and Google Pay** in the back office's
+  Payments does that.
 
 ### Push notifications
 
 Customers turn on notifications from an order's screen. They need:
 
-1. An EAS project: `eas init`, and its id in `.env` as `EAS_PROJECT_ID`. Without it the app
-   says this phone can't get notifications.
+1. An EAS project: `eas init`, and its id in the brand's `brand.json` as `easProjectId`.
+   Without it the app says this phone can't get notifications.
 2. A development build on a real device. Simulators and emulators can't receive them.
 3. **Android:** Firebase Cloud Messaging credentials. Create a Firebase project with the app's
    package name, download `google-services.json` into `app/` (it's git-ignored) and set
@@ -352,8 +403,6 @@ The design these components follow is in docs/DESIGN.md.
 
 ## Deployment notes
 
-Short notes for now; the full checklist comes with phase 7.
-
 ### API server
 
 Any server that can run PHP, MySQL and long-running processes (for example Laravel Forge
@@ -371,12 +420,19 @@ on a VPS, or Laravel Cloud) works:
   behind Nginx on its own host (for example `ws.example-restaurant.com.au`) so the apps connect
   over `wss://` on port 443. Set `REVERB_HOST`, `REVERB_PORT=443` and `REVERB_SCHEME=https` to
   that public address, and restart Reverb on each deploy (`php artisan reverb:restart`).
-- **Stripe:** live keys in `STRIPE_KEY` and `STRIPE_SECRET`, and a webhook endpoint in the Stripe
-  dashboard for `https://api.example-restaurant.com.au/api/v1/stripe/webhook` with the events
-  `payment_intent.succeeded` and `payment_intent.payment_failed`. Its signing secret goes in
-  `STRIPE_WEBHOOK_SECRET`.
-- **Web app origin:** `CORS_ALLOWED_ORIGINS=https://example-restaurant.com.au` and
-  `ORDERING_WEB_URL=https://example-restaurant.com.au` (tracking links in emails).
+- **Stripe:** nothing on the server. Each restaurant's owner enters their own live keys in the
+  back office, with a webhook endpoint in their Stripe dashboard for
+  `https://api.example-restaurant.com.au/api/v1/stripe/webhook/{slug}` (Restaurant settings →
+  Payments shows the address and the two events). Keys are stored encrypted with `APP_KEY`:
+  keep it safe, and when changing it list the old one in `APP_PREVIOUS_KEYS`, or every owner
+  has to enter their keys again.
+- **Names:** with several restaurants, set `APP_NAME` and `MAIL_FROM_NAME` to the platform's own
+  name: it's on the back office's sign-in page and on owners' invitations. Customers' emails
+  carry each restaurant's name.
+- **Websites:** each restaurant's own domain, entered in its settings, may call the API
+  (CORS) and is where its emails and table QR codes link. `CORS_ALLOWED_ORIGINS` is for any
+  other address, such as a preview deployment, and `ORDERING_WEB_URL` is the website for a
+  restaurant without a domain of its own.
 - **Uploaded images:** set `MEDIA_DISK=s3` and the `AWS_*` settings, or run
   `php artisan storage:link` if the server's disk is backed up.
 - **Production `.env`:** `APP_ENV=production`, `APP_DEBUG=false`,
@@ -393,8 +449,47 @@ php artisan queue:restart
 ```
 
 Never run the demo seeder in production: it refuses to, because its accounts use a public
-password. Create the real restaurant and its owner account with `php artisan tinker`.
+password. Add each real restaurant, and invite its owner, with `php artisan restaurant:create`:
+see [ADDING_A_RESTAURANT.md](ADDING_A_RESTAURANT.md).
 
 ### Web app
 
-Deployed with EAS Hosting at `example-restaurant.com.au`; set up in phase 7.
+Each restaurant's website is its own EAS Hosting project, made from its brand folder
+(`app/brands/<brand>/`); [ADDING_A_RESTAURANT.md](ADDING_A_RESTAURANT.md) has the whole
+checklist. EAS Hosting runs the site's server rendering, the page loaders and the API routes
+(`/manifest.webmanifest`, `/sitemap.xml`, `/robots.txt`). It needs an Expo account.
+
+1. Once per restaurant: `npm install --global eas-cli`, `eas login`, then from `app/` create
+   its project with `BRAND=<brand> eas init` and put the project's id in its `brand.json` as
+   `easProjectId`.
+2. Set the production values as EAS environment variables of that project
+   (`eas env:create --environment production`). They're compiled into the site when it's
+   exported, so they must all be public values:
+   - `BRAND=<brand>`, so EAS builds that restaurant;
+   - `EXPO_PUBLIC_API_URL=https://api.example-restaurant.com.au/api/v1`;
+   - `EXPO_PUBLIC_REVERB_APP_KEY`, `EXPO_PUBLIC_REVERB_HOST=ws.example-restaurant.com.au`,
+     `EXPO_PUBLIC_REVERB_PORT=443` and `EXPO_PUBLIC_REVERB_SCHEME=https`.
+
+   The restaurant, its website address (for canonical links, share links, the sitemap and
+   structured data) and its colours come from its `brand.json`; its Stripe key from the API.
+3. Export and deploy, from `app/`. Export again before every deploy:
+
+   ```bash
+   BRAND=<brand> npx expo export --platform web
+   BRAND=<brand> eas deploy --environment production          # a preview URL, to check first
+   BRAND=<brand> eas deploy --environment production --prod   # then production
+   ```
+4. Add the domain in the EAS dashboard (Hosting, Custom domain) and create the DNS records it
+   lists. Then enter it in the restaurant's settings in the back office: the API then accepts
+   requests from it (CORS), and its table QR codes and emails link to it.
+5. Saving the domain also registers it with the restaurant's Stripe account, so Apple Pay and
+   Google Pay appear on the website. Payments' checklist says when it's ready.
+6. Submit `https://<domain>/sitemap.xml` in Google Search Console.
+
+Each page view of the menu or a dish asks the API for the restaurant and menu (a few small
+requests). That's fine for one restaurant; with heavy traffic, a short shared cache header
+(`setResponseHeaders` from `expo-server`) would let EAS's CDN absorb repeat visits.
+
+Each restaurant's build has its own branding: `app/brands/<brand>/` holds its `brand.json`
+(name, short name, store identifiers, scheme, colour, website) and the app icon, adaptive
+icon, splash and favicon; `app/public/brands/<brand>/` holds the website's icons.

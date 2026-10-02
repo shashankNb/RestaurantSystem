@@ -1,6 +1,6 @@
-import { Minus, Plus, Trash2 } from 'lucide-react-native';
 import { Platform, Pressable, View } from 'react-native';
 
+import { Minus, Plus, Trash2 } from '@/components/icons';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { MAX_QUANTITY } from '@/cart/cart-store';
@@ -62,7 +62,7 @@ function StepButton({
       className={cn(
         'size-11 items-center justify-center rounded-md active:bg-accent',
         Platform.select({
-          web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:-outline-offset-2',
+          web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2',
         }),
         disabled && 'opacity-40',
       )}

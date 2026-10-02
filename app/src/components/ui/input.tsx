@@ -31,7 +31,7 @@ function Input({
         Platform.select({
           web: cn(
             "placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground outline-none transition-colors",
-            "focus-visible:outline-ring focus-visible:outline-2 focus-visible:outline-offset-2",
+            "focus-visible:outline-ring focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2",
           ),
           native: "placeholder:text-muted-foreground",
         }),

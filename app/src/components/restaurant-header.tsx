@@ -1,9 +1,9 @@
 import { Image } from 'expo-image';
 import { Link } from 'expo-router';
-import { UserRound } from 'lucide-react-native';
 import { Platform, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { UserRound } from '@/components/icons';
 import { OfflineBanner } from '@/components/offline-banner';
 import { Icon } from '@/components/ui/icon';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -67,6 +67,8 @@ export function RestaurantHeader({ restaurant }: { restaurant: Restaurant }) {
           style={{ width: '100%', height: HERO_HEIGHT + insets.top }}
           contentFit="cover"
           accessible={false}
+          // Decorative; on the web, expo-image takes alt="" from this.
+          accessibilityLabel=""
         />
         <View className="absolute right-3" style={{ top: insets.top + 8 }}>
           <AccountButton surface="photo" />
@@ -100,7 +102,7 @@ function Logo({ url }: { url: string | null }) {
 
   return (
     <View className="bg-background size-14 overflow-hidden rounded-md">
-      <Image source={{ uri: url }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={150} accessible={false} />
+      <Image source={{ uri: url }} style={{ width: '100%', height: '100%' }} contentFit="contain" transition={150} accessible={false} accessibilityLabel="" />
     </View>
   );
 }
@@ -147,7 +149,7 @@ function AccountButton({ surface }: { surface: 'brand' | 'photo' }) {
           surface === 'photo' && 'bg-scrim',
           Platform.select({
             web: cn(
-              'outline-none focus-visible:outline-2 focus-visible:outline-offset-2',
+              'outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2',
               surface === 'brand' ? 'focus-visible:outline-primary-foreground' : 'focus-visible:outline-on-photo',
             ),
           }),

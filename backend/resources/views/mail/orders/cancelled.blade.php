@@ -1,4 +1,4 @@
-<x-mail::message>
+<x-mail::message :restaurant="$restaurant">
 # Order {{ $order->display_number }} is cancelled
 
 {{ $reason }}

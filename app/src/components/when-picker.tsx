@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Platform, Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 
+import { ChoiceChip } from '@/components/choice-chip';
 import { ChoiceRow } from '@/components/choice-row';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,8 +10,6 @@ import { errorMessage } from '@/lib/api/client';
 import { useSlots } from '@/lib/api/ordering';
 import type { FulfilmentType } from '@/lib/api/schemas';
 import { describeDay, formatTime } from '@/lib/format';
-import { spaceActivates } from '@/lib/keyboard';
-import { cn } from '@/lib/utils';
 
 /**
  * As soon as possible, or a time later: a day, then one of the quarter-hours the
@@ -91,12 +90,12 @@ export function WhenPicker({
         <View className="gap-3">
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-2" role="radiogroup" aria-label="Day">
             {days.map((candidate) => (
-              <Chip key={candidate.key} label={candidate.label} selected={candidate.key === day.key} onPress={() => setDayKey(candidate.key)} />
+              <ChoiceChip key={candidate.key} label={candidate.label} selected={candidate.key === day.key} onPress={() => setDayKey(candidate.key)} />
             ))}
           </ScrollView>
           <View className="flex-row flex-wrap gap-2" role="radiogroup" aria-label={`Times, ${day.label}`}>
             {day.times.map((time) => (
-              <Chip key={time} label={formatTime(time, timeZone)} selected={time === scheduledFor} onPress={() => onChange(time)} />
+              <ChoiceChip key={time} label={formatTime(time, timeZone)} selected={time === scheduledFor} onPress={() => onChange(time)} />
             ))}
           </View>
           <Text variant="muted">
@@ -113,24 +112,6 @@ export function WhenPicker({
         </Text>
       ) : null}
     </View>
-  );
-}
-
-function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      role="radio"
-      aria-checked={selected}
-      onPress={onPress}
-      {...spaceActivates(onPress)}
-      className={cn(
-        'min-h-11 min-w-20 items-center justify-center rounded-md border px-3',
-        selected ? 'bg-foreground border-foreground' : 'border-border bg-background active:bg-accent',
-        Platform.select({ web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-2' }),
-      )}
-    >
-      <Text className={cn('font-body-medium', selected ? 'text-background' : 'text-foreground')}>{label}</Text>
-    </Pressable>
   );
 }
 

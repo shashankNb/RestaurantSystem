@@ -4,19 +4,24 @@ import { AppState, Platform } from 'react-native';
 
 import { ApiError } from '@/lib/api/client';
 
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      // A 4xx answer won't change on a retry; network and server errors might.
-      retry: (failureCount, error) =>
-        !(error instanceof ApiError && error.status >= 400 && error.status < 500) && failureCount < 2,
+export function createQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        // A 4xx answer won't change on a retry; network and server errors might.
+        retry: (failureCount, error) =>
+          !(error instanceof ApiError && error.status >= 400 && error.status < 500) && failureCount < 2,
+      },
+      mutations: {
+        retry: false,
+      },
     },
-    mutations: {
-      retry: false,
-    },
-  },
-});
+  });
+}
+
+/** The app's cache. Pages rendered on the web server get a fresh one each (see _layout.tsx). */
+export const queryClient = createQueryClient();
 
 /**
  * Browsers tell TanStack Query when the page regains focus or the connection comes back;

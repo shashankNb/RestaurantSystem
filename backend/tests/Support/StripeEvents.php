@@ -9,6 +9,7 @@ use Illuminate\Testing\TestResponse;
 /**
  * Stripe webhook events for tests, signed the way Stripe signs them: an HMAC-SHA256 of
  * "{timestamp}.{body}" with the endpoint's signing secret, in the Stripe-Signature header.
+ * They're sent to the webhook of the order's restaurant, whose factory secret is SECRET.
  */
 final class StripeEvents
 {
@@ -40,18 +41,35 @@ final class StripeEvents
 
     /**
      * @param  array<string, mixed>  $event
+     * @param  string|null  $restaurant  slug of the restaurant whose endpoint gets it (the order's if left out)
      */
-    public static function send(array $event, ?int $signedAt = null, string $secret = self::SECRET): TestResponse
+    public static function send(array $event, ?int $signedAt = null, string $secret = self::SECRET, ?string $restaurant = null): TestResponse
     {
         $body = (string) json_encode($event);
         $signedAt ??= time();
         $signature = hash_hmac('sha256', "{$signedAt}.{$body}", $secret);
 
-        return test()->call('POST', '/api/v1/stripe/webhook', server: [
+        return test()->call('POST', self::url($event, $restaurant), server: [
             'HTTP_STRIPE_SIGNATURE' => "t={$signedAt},v1={$signature}",
             'CONTENT_TYPE' => 'application/json',
             'HTTP_ACCEPT' => 'application/json',
         ], content: $body);
+    }
+
+    /**
+     * The webhook URL of the restaurant whose order the event is about, or of $restaurant.
+     *
+     * @param  array<string, mixed>  $event
+     */
+    public static function url(array $event, ?string $restaurant = null): string
+    {
+        $restaurant ??= Order::query()
+            ->where('public_id', $event['data']['object']['metadata']['order_public_id'] ?? null)
+            ->firstOrFail()
+            ->restaurant
+            ->slug;
+
+        return "/api/v1/stripe/webhook/{$restaurant}";
     }
 
     /**

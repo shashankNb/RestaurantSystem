@@ -36,6 +36,6 @@ export interface PaymentFormProps {
   onError: (message: string) => void;
 }
 
-export type PaymentFormComponent = (props: PaymentFormProps) => JSX.Element;
+export type PaymentFormComponent = (props: PaymentFormProps) => JSX.Element | null;
 
 export const PAYMENT_FAILED_MESSAGE = 'We couldn’t take the payment. Check your details and try again, or use another card.';

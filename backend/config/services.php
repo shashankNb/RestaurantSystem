@@ -28,12 +28,15 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // Each restaurant's owner enters its own Stripe keys in the back office (Restaurant
+    // settings → Payments). These are only the demo restaurant's, for local development:
+    // DemoRestaurantSeeder gives them to it.
     'stripe' => [
-        // Publishable key (pk_…): shown to the apps, which read their own copy.
+        // Publishable key (pk_…).
         'key' => env('STRIPE_KEY'),
-        // Secret key (sk_…): server only.
+        // Secret key (sk_…).
         'secret' => env('STRIPE_SECRET'),
-        // Signing secret (whsec_…) for POST /api/v1/stripe/webhook.
+        // Signing secret (whsec_…) for POST /api/v1/stripe/webhook/himalayan-momo-house.
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 

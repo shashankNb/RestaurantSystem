@@ -1,21 +1,34 @@
-import { AddressCollectionMode, CollectionMode, PaymentSheetError, useStripe, type AppearanceParams } from '@stripe/stripe-react-native';
+import {
+  AddressCollectionMode,
+  CollectionMode,
+  PaymentSheetError,
+  PlatformPay,
+  PlatformPayButton,
+  PlatformPayError,
+  usePlatformPay,
+  useStripe,
+  type AppearanceParams,
+} from '@stripe/stripe-react-native';
 import * as Linking from 'expo-linking';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Platform, View } from 'react-native';
 
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { useRestaurant } from '@/lib/api/restaurant';
-import { config } from '@/lib/config';
 import { formatMoney } from '@/lib/money';
+import { OrDivider } from '@/payments/or-divider';
 import { PaymentsNotSetUp } from '@/payments/payments-not-set-up';
+import { usePublishableKey } from '@/payments/use-publishable-key';
 import { brandColors, DEFAULT_BRAND_COLOR, type Scheme } from '@/theme/brand';
 import { PALETTE } from '@/theme/palette';
 
 import { PAYMENT_FAILED_MESSAGE, type PaymentFormComponent } from './types';
 
 /**
- * iOS and Android: Stripe's PaymentSheet, with cards, Apple Pay and Google Pay. "Place
- * order" creates the order, then the sheet opens to pay for it.
+ * iOS and Android. Where the phone has Apple Pay or Google Pay set up, its button comes
+ * first: one tap, Face ID or a fingerprint, no card details. "Place order" below it opens
+ * Stripe's PaymentSheet for a card (it offers the wallet too). Both create the order first.
  */
 export const PaymentForm: PaymentFormComponent = ({
   amountCents,
@@ -28,12 +41,83 @@ export const PaymentForm: PaymentFormComponent = ({
   onError,
 }) => {
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
+  const { isPlatformPaySupported, confirmPlatformPayPayment } = usePlatformPay();
   const { data: restaurant } = useRestaurant();
+  const publishableKey = usePublishableKey();
+  // Test keys take test payments in any build, store builds included: Google Pay then uses
+  // Google's test environment, as Stripe requires.
+  const testMode = publishableKey?.startsWith('pk_test_') ?? true;
   const [busy, setBusy] = useState(false);
+  const [walletReady, setWalletReady] = useState(false);
 
-  if (!config.stripePublishableKey) {
+  // Apple Pay needs a card in Wallet (and the Merchant ID in the build); Google Pay, a card
+  // in Google Wallet.
+  useEffect(() => {
+    if (!publishableKey) {
+      return;
+    }
+
+    let current = true;
+
+    isPlatformPaySupported({ googlePay: { testEnv: testMode } })
+      .then((supported) => {
+        if (current) {
+          setWalletReady(supported);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      current = false;
+    };
+  }, [isPlatformPaySupported, publishableKey, testMode]);
+
+  if (publishableKey === undefined) {
+    return null;
+  }
+
+  if (publishableKey === null) {
     return <PaymentsNotSetUp />;
   }
+
+  const payWithWallet = async () => {
+    if (!validate()) {
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const payment = await createPayment();
+
+      if (payment === null) {
+        return;
+      }
+
+      const code = currency.toUpperCase();
+      const { error } = await confirmPlatformPayPayment(payment.clientSecret, {
+        applePay: {
+          cartItems: [{ label: merchantName, amount: (amountCents / 100).toFixed(2), paymentType: PlatformPay.PaymentType.Immediate }],
+          merchantCountryCode: 'AU',
+          currencyCode: code,
+        },
+        googlePay: { testEnv: testMode, merchantName, merchantCountryCode: 'AU', currencyCode: code },
+      });
+
+      if (error) {
+        // Closing the sheet isn't a failure: the order waits for another try.
+        if (error.code !== PlatformPayError.Canceled) {
+          onError(error.localizedMessage ?? error.message);
+        }
+
+        return;
+      }
+
+      onPaid();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const pay = async () => {
     if (!validate()) {
@@ -64,7 +148,7 @@ export const PaymentForm: PaymentFormComponent = ({
           attachDefaultsToPaymentMethod: true,
         },
         applePay: { merchantCountryCode: 'AU' },
-        googlePay: { merchantCountryCode: 'AU', currencyCode: currency.toUpperCase(), testEnv: __DEV__ },
+        googlePay: { merchantCountryCode: 'AU', currencyCode: currency.toUpperCase(), testEnv: testMode },
         allowsDelayedPaymentMethods: false,
         appearance: appearance(restaurant?.brand_color ?? DEFAULT_BRAND_COLOR),
       });
@@ -93,9 +177,25 @@ export const PaymentForm: PaymentFormComponent = ({
   };
 
   return (
-    <Button size="lg" onPress={() => void pay()} disabled={disabled || busy}>
-      <Text>{busy ? 'Placing order…' : `Place order · ${formatMoney(amountCents, currency)}`}</Text>
-    </Button>
+    <View className="gap-4">
+      {walletReady ? (
+        <>
+          <PlatformPayButton
+            type={PlatformPay.ButtonType.Order}
+            appearance={PlatformPay.ButtonStyle.Automatic}
+            borderRadius={8}
+            disabled={disabled || busy}
+            onPress={() => void payWithWallet()}
+            accessibilityLabel={`${Platform.OS === 'ios' ? 'Apple Pay' : 'Google Pay'}: place order, ${formatMoney(amountCents, currency)}`}
+            style={{ height: 52 }}
+          />
+          <OrDivider />
+        </>
+      ) : null}
+      <Button size="lg" onPress={() => void pay()} disabled={disabled || busy}>
+        <Text>{busy ? 'Placing order…' : `Place order · ${formatMoney(amountCents, currency)}`}</Text>
+      </Button>
+    </View>
   );
 };
 

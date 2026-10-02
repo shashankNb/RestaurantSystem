@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, router } from 'expo-router';
-import { CircleAlert } from 'lucide-react-native';
+import type { Metadata } from 'expo-router/server';
 import { useRef, useState, type ReactNode } from 'react';
 import { useForm, type Path } from 'react-hook-form';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
@@ -10,7 +10,9 @@ import { z } from 'zod';
 import { useSession } from '@/auth/session';
 import { useCart } from '@/cart/cart-store';
 import { ChoiceRow } from '@/components/choice-row';
+import { CircleAlert } from '@/components/icons';
 import { OrderTotals } from '@/components/order-totals';
+import { PageHead } from '@/components/page-head';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -27,6 +29,7 @@ import { useRestaurant } from '@/lib/api/restaurant';
 import type { Checkout, Quote, SavedAddress, User } from '@/lib/api/schemas';
 import { describeDay, formatTime } from '@/lib/format';
 import { formatMoney } from '@/lib/money';
+import { privatePage, toMetadata } from '@/lib/page-meta';
 import { pushTokenIfAllowed } from '@/lib/push';
 import { randomId } from '@/lib/random-id';
 import { useRecentOrders } from '@/orders/recent-orders';
@@ -75,12 +78,28 @@ const API_FIELDS: Record<Path<CheckoutValues>, string> = {
   instructions: 'delivery.instructions',
 };
 
+const PAGE = privatePage('Check out');
+
+/** Web: the page's title in the server's HTML. It stays out of search results. */
+export function generateMetadata(): Metadata {
+  return toMetadata(PAGE);
+}
+
+export default function CheckoutPage() {
+  return (
+    <>
+      <PageHead page={PAGE} />
+      <CheckoutScreen />
+    </>
+  );
+}
+
 /**
  * Checkout: who the order is for, where it goes (for delivery), then "Place order", which
  * creates the order and takes the payment (PaymentSheet on iOS and Android, the Payment
  * Element on the web). Details are filled in from the account when signed in.
  */
-export default function CheckoutScreen() {
+function CheckoutScreen() {
   const status = useSession((state) => state.status);
   const me = useMe();
   const lines = useCart((state) => state.lines);
@@ -96,7 +115,7 @@ export default function CheckoutScreen() {
         title="Your cart is empty"
         message="Add something from the menu to start an order."
         action={
-          <Button variant="outline" onPress={() => router.replace('/')}>
+          <Button variant="outline" onPress={() => router.dismissTo('/')}>
             <Text>Back to the menu</Text>
           </Button>
         }
@@ -126,6 +145,7 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
   const postcode = useCart((state) => state.postcode);
   const scheduledFor = useCart((state) => state.scheduledFor);
   const promoCode = useCart((state) => state.promoCode);
+  const table = useCart((state) => state.table);
   const remember = useRecentOrders((state) => state.remember);
   const addresses = useAddresses();
   const saveAddress = useSaveAddress();
@@ -157,7 +177,11 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
   const attempt = useRef<{ payload: string; key: string } | null>(null);
   const placed = useRef<Checkout | null>(null);
 
-  const request = delivery && postcode === null ? null : cartRequest({ lines, fulfilment, postcode, scheduledFor, promoCode });
+  const dineIn = fulfilment === 'dine_in';
+  const request =
+    (delivery && postcode === null) || (dineIn && table === null)
+      ? null
+      : cartRequest({ lines, fulfilment, postcode, table, scheduledFor, promoCode });
   const quote = useQuote(request);
   const currency = restaurant?.currency ?? 'AUD';
   const timeZone = restaurant?.timezone ?? 'Australia/Melbourne';
@@ -325,7 +349,8 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="w-full max-w-2xl gap-8 self-center px-4 pb-12 pt-2">
         <View className="gap-1">
           <Text variant="item">
-            {delivery ? 'Delivery' : 'Pickup'} · {describeWhen(scheduledFor, current, timeZone)}
+            {delivery ? 'Delivery' : dineIn ? `Dine in at table ${table ?? '?'}` : 'Pickup'} ·{' '}
+            {describeWhen(dineIn ? null : scheduledFor, current, timeZone)}
           </Text>
           <View className="flex-row flex-wrap items-center gap-x-2">
             <Text className="text-muted-foreground">
@@ -342,13 +367,14 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
 
         <Section title="Your details">
           {user ? null : (
-            <Text className="text-muted-foreground">
-              Have an account?{' '}
-              <Link href="/account" className="text-brand-text font-body-semibold underline">
-                Sign in
-              </Link>{' '}
-              to use your saved details.
-            </Text>
+            <View>
+              <Text className="text-muted-foreground">Have an account?</Text>
+              <Link href="/account" asChild>
+                <Button variant="link" className="h-11 self-start px-0">
+                  <Text>Sign in to use your saved details</Text>
+                </Button>
+              </Link>
+            </View>
           )}
           <TextField
             control={form.control}
@@ -463,7 +489,9 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
             />
           ) : null}
 
-          {request === null ? <Problem message="Enter your delivery postcode in your cart." inCart /> : null}
+          {request === null ? (
+            <Problem message={dineIn ? 'Choose your table in your cart.' : 'Enter your delivery postcode in your cart.'} inCart />
+          ) : null}
           {current && !current.can_place_order ? (
             <Problem message={current.errors[0]?.message ?? 'This order can’t be placed yet.'} inCart />
           ) : null}

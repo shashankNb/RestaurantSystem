@@ -112,8 +112,29 @@ class DemoRestaurantSeeder extends Seeder
             return;
         }
 
-        if (Restaurant::query()->where('slug', self::SLUG)->exists()) {
-            $this->command->info('The demo restaurant is already seeded.');
+        $existing = Restaurant::query()->where('slug', self::SLUG)->first();
+
+        if ($existing !== null) {
+            $changed = false;
+
+            // Added after the first release: give an earlier demo restaurant its tables.
+            if ($existing->diningTables()->doesntExist()) {
+                $this->seedTables($existing);
+                $existing->update(['dine_in_enabled' => true]);
+                $this->command->info('Added tables 1–12 to the demo restaurant and turned on dine in.');
+                $changed = true;
+            }
+
+            // Stripe keys moved from .env to each restaurant's settings.
+            if (! $existing->acceptsPayments() && ($keys = $this->stripeKeys()) !== []) {
+                $existing->update($keys);
+                $this->command->info('Gave the demo restaurant the Stripe keys from .env.');
+                $changed = true;
+            }
+
+            if (! $changed) {
+                $this->command->info('The demo restaurant is already seeded.');
+            }
 
             return;
         }
@@ -141,12 +162,15 @@ class DemoRestaurantSeeder extends Seeder
                 'is_accepting_orders' => true,
                 'pickup_enabled' => true,
                 'delivery_enabled' => true,
+                'dine_in_enabled' => true,
                 'default_prep_minutes' => 20,
                 'auto_reject_minutes' => 10,
+                ...$this->stripeKeys(),
             ]);
 
             $this->seedAccounts($restaurant);
             $this->seedHours($restaurant);
+            $this->seedTables($restaurant);
             $this->seedMenu($restaurant, $this->seedModifierGroups($restaurant));
 
             $restaurant->deliveryZones()->create([
@@ -166,6 +190,45 @@ class DemoRestaurantSeeder extends Seeder
                 'is_active' => true,
             ]);
         });
+    }
+
+    /** Tables 1 to 12, for dine-in orders. */
+    /**
+     * The demo restaurant's own Stripe keys, from STRIPE_KEY, STRIPE_SECRET and
+     * STRIPE_WEBHOOK_SECRET in .env (other restaurants' owners enter theirs in the back
+     * office). Only keys that look right are used: pasted the wrong way round, Stripe
+     * would refuse every payment.
+     *
+     * @return array<string, string>
+     */
+    private function stripeKeys(): array
+    {
+        $publishable = (string) config('services.stripe.key');
+        $secret = (string) config('services.stripe.secret');
+        $webhookSecret = (string) config('services.stripe.webhook_secret');
+
+        if ($publishable === '' && $secret === '') {
+            return [];
+        }
+
+        if (! str_starts_with($publishable, 'pk_') || preg_match('/^(sk|rk)_/', $secret) !== 1) {
+            $this->command->warn('Skipped the Stripe keys in .env: STRIPE_KEY should be the publishable key (pk_…) and STRIPE_SECRET the secret key (sk_…). Fix them and seed again, or enter the keys in the back office (Restaurant settings → Payments).');
+
+            return [];
+        }
+
+        return array_filter([
+            'stripe_publishable_key' => $publishable,
+            'stripe_secret_key' => $secret,
+            'stripe_webhook_secret' => $webhookSecret,
+        ], fn (string $value): bool => $value !== '');
+    }
+
+    private function seedTables(Restaurant $restaurant): void
+    {
+        foreach (range(1, 12) as $number) {
+            $restaurant->diningTables()->create(['label' => (string) $number, 'is_active' => true, 'sort_order' => 0]);
+        }
     }
 
     private function seedAccounts(Restaurant $restaurant): void

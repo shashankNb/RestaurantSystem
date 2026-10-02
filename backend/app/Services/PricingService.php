@@ -10,6 +10,7 @@ use App\Data\QuoteLine;
 use App\Enums\FulfilmentType;
 use App\Enums\PromoCodeType;
 use App\Models\DeliveryZone;
+use App\Models\DiningTable;
 use App\Models\MenuItem;
 use App\Models\ModifierGroup;
 use App\Models\ModifierOption;
@@ -28,7 +29,8 @@ use Illuminate\Support\Collection;
  *
  * - A line costs (item price + chosen option prices) × quantity. Lines with a problem
  *   (sold out, a missing required choice) are reported but left out of the totals.
- * - Delivery adds the zone's fee; the zone's minimum applies to the food subtotal.
+ * - Delivery adds the zone's fee; the zone's minimum applies to the food subtotal. Pickup
+ *   and dine in (at one of the restaurant's tables, for now) have no fee or minimum.
  * - A promo code takes a percentage or a fixed amount off the food subtotal.
  * - total = subtotal − discount + delivery fee; GST is total ÷ 11, to the nearest cent.
  */
@@ -51,7 +53,7 @@ final class PricingService
         $errors = array_merge(...array_map(fn (QuoteLine $line): array => $line->errors, $lines));
         $subtotal = array_sum(array_map(fn (QuoteLine $line): int => $line->isValid() ? $line->lineTotalCents : 0, $lines));
 
-        [$zone, $estimatedMinutes, $fulfilmentErrors] = $this->fulfilment($restaurant, $cart, $subtotal);
+        [$zone, $estimatedMinutes, $fulfilmentErrors, $table] = $this->fulfilment($restaurant, $cart, $subtotal);
         array_push($errors, ...$fulfilmentErrors);
         array_push($errors, ...$this->timing($restaurant, $cart, $now, $estimatedMinutes));
 
@@ -81,6 +83,7 @@ final class PricingService
             deliveryZone: $zone,
             estimatedMinutes: $estimatedMinutes,
             errors: $errors,
+            table: $table,
         );
     }
 
@@ -191,10 +194,10 @@ final class PricingService
     }
 
     /**
-     * Pickup or delivery: whether it's offered, the delivery zone and its minimum, and how
-     * long an ASAP order takes (preparation, or delivery).
+     * Pickup, delivery or dine in: whether it's offered, the delivery zone and its minimum,
+     * the table, and how long an ASAP order takes (preparation, or delivery).
      *
-     * @return array{0: ?DeliveryZone, 1: int, 2: list<QuoteError>}
+     * @return array{0: ?DeliveryZone, 1: int, 2: list<QuoteError>, 3: ?DiningTable}
      */
     private function fulfilment(Restaurant $restaurant, Cart $cart, int $subtotal): array
     {
@@ -203,7 +206,11 @@ final class PricingService
                 new QuoteError('fulfilment_unavailable', 'We’re not offering pickup at the moment. Choose delivery instead.', 'fulfilment_type'),
             ];
 
-            return [null, $restaurant->default_prep_minutes, $errors];
+            return [null, $restaurant->default_prep_minutes, $errors, null];
+        }
+
+        if ($cart->fulfilmentType === FulfilmentType::DineIn) {
+            return $this->dineIn($restaurant, $cart);
         }
 
         $check = $this->delivery->check($restaurant, $cart->postcode ?? '');
@@ -211,7 +218,7 @@ final class PricingService
         if (! $check->isDeliverable()) {
             $minutes = $this->delivery->longestEstimatedMinutes($restaurant) ?? $restaurant->default_prep_minutes;
 
-            return [null, $minutes, [new QuoteError('not_deliverable', (string) $check->message, 'postcode')]];
+            return [null, $minutes, [new QuoteError('not_deliverable', (string) $check->message, 'postcode')], null];
         }
 
         $zone = $check->zone;
@@ -226,7 +233,34 @@ final class PricingService
             );
         }
 
-        return [$zone, $zone->estimated_minutes, $errors];
+        return [$zone, $zone->estimated_minutes, $errors, null];
+    }
+
+    /**
+     * Dine in needs the restaurant to offer it and the customer's table to be one of its
+     * active tables (chosen in the app, or by the table's QR code).
+     *
+     * @return array{0: null, 1: int, 2: list<QuoteError>, 3: ?DiningTable}
+     */
+    private function dineIn(Restaurant $restaurant, Cart $cart): array
+    {
+        if (! $restaurant->offersDineIn()) {
+            return [null, $restaurant->default_prep_minutes, [
+                new QuoteError('fulfilment_unavailable', 'We’re not taking orders at tables at the moment. Choose pickup instead.', 'fulfilment_type'),
+            ], null];
+        }
+
+        $table = $restaurant->activeDiningTables->first(
+            fn (DiningTable $candidate): bool => mb_strtolower($candidate->label) === mb_strtolower((string) $cart->table),
+        );
+
+        if ($table === null) {
+            return [null, $restaurant->default_prep_minutes, [
+                new QuoteError('unknown_table', "We can’t find table {$cart->table}. Check the number on your table and choose it again.", 'table'),
+            ], null];
+        }
+
+        return [null, $restaurant->default_prep_minutes, [], $table];
     }
 
     /**
@@ -237,9 +271,17 @@ final class PricingService
      */
     private function timing(Restaurant $restaurant, Cart $cart, CarbonImmutable $now, int $leadMinutes): array
     {
-        $choose = $cart->fulfilmentType === FulfilmentType::Delivery
-            ? 'Choose a delivery time to order ahead.'
-            : 'Choose a pickup time to order ahead.';
+        $dineIn = $cart->fulfilmentType === FulfilmentType::DineIn;
+        $choose = match ($cart->fulfilmentType) {
+            FulfilmentType::Delivery => 'Choose a delivery time to order ahead.',
+            FulfilmentType::Pickup => 'Choose a pickup time to order ahead.',
+            // At a table it's now or not at all.
+            FulfilmentType::DineIn => 'Ask a member of staff.',
+        };
+
+        if ($dineIn && $cart->scheduledFor !== null) {
+            return [new QuoteError('invalid_time', 'Orders at a table are for now. Choose as soon as possible.', 'scheduled_for')];
+        }
 
         if ($cart->scheduledFor !== null) {
             return $this->hours->isSlot($restaurant, $cart->scheduledFor, $now, $leadMinutes) ? [] : [
@@ -250,7 +292,7 @@ final class PricingService
         $status = $this->hours->status($restaurant, $now);
 
         if (! $status->isOpen) {
-            $message = $status->nextOpeningAt === null
+            $message = $status->nextOpeningAt === null || $dineIn
                 ? 'We’re closed right now and not taking orders.'
                 : 'We’re closed right now and open again '.LocalTime::describe($status->nextOpeningAt, $restaurant->timezone, $now).". {$choose}";
 

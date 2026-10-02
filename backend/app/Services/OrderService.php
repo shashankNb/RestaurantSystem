@@ -200,7 +200,7 @@ final class OrderService
 
         if ($order->stripe_payment_intent_id !== null) {
             try {
-                $this->payments->cancelPaymentIntent($order->stripe_payment_intent_id);
+                $this->payments->cancelPaymentIntent($order->loadMissing('restaurant'));
             } catch (PaymentsUnavailable $exception) {
                 report($exception);
             }

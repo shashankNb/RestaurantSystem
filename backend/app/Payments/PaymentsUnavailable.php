@@ -12,7 +12,7 @@ final class PaymentsUnavailable extends RuntimeException
 {
     public static function notConfigured(): self
     {
-        return new self('Payments aren’t set up yet. Add the Stripe keys to the backend’s .env.');
+        return new self('This restaurant isn’t taking payments online yet.');
     }
 
     public static function because(\Throwable $previous): self

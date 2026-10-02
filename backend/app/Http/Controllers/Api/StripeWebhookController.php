@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessStripeEvent;
+use App\Models\Restaurant;
 use App\Models\StripeEvent;
 use App\Payments\InvalidWebhook;
 use App\Payments\StripeWebhook;
@@ -13,14 +14,19 @@ use Illuminate\Http\Request;
 use Throwable;
 
 /**
- * Stripe's webhook. Only a correctly signed request is accepted. Each event is stored once
- * (a replay is acknowledged and ignored) and processed straight away, so a paid order
- * reaches the kitchen within a second. If processing fails, it's retried on the queue.
+ * Stripe's webhook, one per restaurant (/stripe/webhook/{slug}): the restaurant's own Stripe
+ * account sends its events here, signed with the signing secret the owner entered. Only a
+ * correctly signed request is accepted, and its events only ever touch that restaurant's
+ * orders. Each event is stored once (a replay is acknowledged and ignored) and processed
+ * straight away, so a paid order reaches the kitchen within a second. If processing fails,
+ * it's retried on the queue.
  */
 class StripeWebhookController extends Controller
 {
-    public function __invoke(Request $request, StripeWebhook $webhook): JsonResponse
+    public function __invoke(Request $request, Restaurant $restaurant): JsonResponse
     {
+        $webhook = new StripeWebhook($restaurant->stripe_webhook_secret);
+
         try {
             $event = $webhook->verify($request->getContent(), $request->header('Stripe-Signature'));
         } catch (InvalidWebhook $exception) {
@@ -33,6 +39,7 @@ class StripeWebhookController extends Controller
 
         try {
             $stored = StripeEvent::query()->create([
+                'restaurant_id' => $restaurant->id,
                 'stripe_event_id' => $event->id,
                 'type' => $event->type,
                 'payload' => $event->toArray(),

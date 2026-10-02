@@ -63,9 +63,12 @@ export const restaurantSchema = z.object({
   fulfilment: z.object({
     pickup: z.object({ enabled: z.boolean(), prep_minutes: z.number().int() }),
     delivery: z.object({ enabled: z.boolean(), zones: z.array(deliveryZoneSchema) }),
+    dine_in: z.object({ enabled: z.boolean(), tables: z.array(z.string()) }),
   }),
   opening_hours: z.array(openingHourSchema),
   special_hours: z.array(specialHourSchema),
+  /** The restaurant's own Stripe account: its publishable key, once all its keys are in. */
+  payments: z.object({ stripe_publishable_key: z.string().nullable() }).optional(),
 });
 
 export const membershipSchema = z.object({
@@ -132,7 +135,7 @@ export const menuSchema = z.object({ categories: z.array(menuCategorySchema) });
 
 /* Ordering (slots, delivery check, quote) */
 
-export const fulfilmentTypeSchema = z.enum(['pickup', 'delivery']);
+export const fulfilmentTypeSchema = z.enum(['pickup', 'delivery', 'dine_in']);
 
 export const slotsSchema = z.object({
   fulfilment_type: fulfilmentTypeSchema,
@@ -172,6 +175,7 @@ export const quoteSchema = z.object({
     type: fulfilmentTypeSchema,
     estimated_minutes: z.number().int(),
     delivery_zone: deliveryZoneSchema.nullable(),
+    table: z.string().nullable(),
   }),
   scheduled_for: z.string().nullable(),
   errors: z.array(quoteErrorSchema),
@@ -214,6 +218,7 @@ export const orderSchema = z.object({
   status: orderStatusSchema,
   payment_status: z.enum(['unpaid', 'paid', 'failed', 'refunded']),
   fulfilment_type: fulfilmentTypeSchema,
+  table: z.string().nullable(),
   scheduled_for: z.string().nullable(),
   estimated_ready_at: z.string().nullable(),
   placed_at: z.string().nullable(),
@@ -262,6 +267,7 @@ export const staffOrderSchema = z.object({
   status: orderStatusSchema,
   payment_status: z.enum(['unpaid', 'paid', 'failed', 'refunded']),
   fulfilment_type: fulfilmentTypeSchema,
+  table: z.string().nullable(),
   scheduled_for: z.string().nullable(),
   placed_at: z.string().nullable(),
   accept_by: z.string().nullable(),

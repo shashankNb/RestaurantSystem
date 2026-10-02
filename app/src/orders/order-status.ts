@@ -24,6 +24,7 @@ export function describeOrder(
   now: Date = new Date(),
 ): { title: string; detail: string | null; tone: StatusTone } {
   const pickup = order.fulfilment_type === 'pickup';
+  const dineIn = order.fulfilment_type === 'dine_in';
   const when = (iso: string) => {
     const day = describeDay(iso, timeZone, now);
 
@@ -32,7 +33,9 @@ export function describeOrder(
   const ready = order.estimated_ready_at
     ? pickup
       ? `Ready for pickup at about ${when(order.estimated_ready_at)}.`
-      : `Out for delivery at about ${when(order.estimated_ready_at)}.`
+      : dineIn
+        ? `We’ll bring it to table ${order.table ?? ''} at about ${when(order.estimated_ready_at)}.`
+        : `Out for delivery at about ${when(order.estimated_ready_at)}.`
     : null;
 
   switch (order.status) {
@@ -53,7 +56,9 @@ export function describeOrder(
     case 'ready':
       return pickup
         ? { title: 'Ready for pickup', detail: 'Collect it from the counter.', tone: 'good' }
-        : { title: 'Ready to go out', detail: 'It will be on its way shortly.', tone: 'good' };
+        : dineIn
+          ? { title: 'On its way to your table', detail: `A member of staff is bringing it to table ${order.table ?? ''}.`, tone: 'good' }
+          : { title: 'Ready to go out', detail: 'It will be on its way shortly.', tone: 'good' };
     case 'out_for_delivery':
       return {
         title: 'On its way',
@@ -61,7 +66,9 @@ export function describeOrder(
         tone: 'good',
       };
     case 'completed':
-      return { title: pickup ? 'Collected' : 'Delivered', detail: 'Thanks for your order.', tone: 'good' };
+      return dineIn
+        ? { title: 'Served', detail: 'Enjoy your meal.', tone: 'good' }
+        : { title: pickup ? 'Collected' : 'Delivered', detail: 'Thanks for your order.', tone: 'good' };
     case 'rejected':
       return {
         title: `${order.restaurant.name} couldn’t take your order`,
@@ -96,18 +103,18 @@ export interface OrderStep {
 }
 
 /**
- * The steps from "Order placed" to "Collected" or "Delivered", with the ones reached so
+ * The steps from "Order placed" to "Collected", "Served" or "Delivered", with the ones reached so
  * far. A step the kitchen skipped (straight from accepted to ready) counts as done.
  */
 export function orderSteps(order: Order): OrderStep[] {
-  const pickup = order.fulfilment_type === 'pickup';
+  const type = order.fulfilment_type;
   const steps: { status: OrderStatus; label: string }[] = [
     { status: 'placed', label: 'Order placed' },
     { status: 'accepted', label: 'Accepted' },
     { status: 'preparing', label: 'Preparing' },
-    { status: 'ready', label: pickup ? 'Ready for pickup' : 'Ready' },
-    ...(pickup ? [] : [{ status: 'out_for_delivery' as const, label: 'On its way' }]),
-    { status: 'completed', label: pickup ? 'Collected' : 'Delivered' },
+    { status: 'ready', label: type === 'pickup' ? 'Ready for pickup' : 'Ready' },
+    ...(type === 'delivery' ? [{ status: 'out_for_delivery' as const, label: 'On its way' }] : []),
+    { status: 'completed', label: type === 'pickup' ? 'Collected' : type === 'dine_in' ? 'Served' : 'Delivered' },
   ];
   const reached = steps.findIndex((step) => step.status === order.status);
   const finished = order.status === 'completed';

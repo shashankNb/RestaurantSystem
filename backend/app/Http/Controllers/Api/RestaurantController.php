@@ -24,6 +24,7 @@ class RestaurantController extends Controller
         $restaurant->load([
             'openingHours',
             'deliveryZones' => fn (HasMany $query) => $query->where('is_active', true)->orderBy('id'),
+            'activeDiningTables',
             'specialHours' => fn (HasMany $query) => $query->whereBetween('date', [
                 $today,
                 $now->setTimezone($restaurant->timezone)->addDays(self::SPECIAL_HOURS_DAYS)->toDateString(),

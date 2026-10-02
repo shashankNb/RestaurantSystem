@@ -25,7 +25,6 @@ final class OrderMessages
         }
 
         $restaurant = $order->restaurant->name;
-        $delivery = $order->fulfilment_type === FulfilmentType::Delivery;
 
         return match ($order->status) {
             OrderStatus::Placed => [
@@ -42,9 +41,11 @@ final class OrderMessages
                 'title' => "Order {$number} is cooking",
                 'body' => 'The kitchen has started on your order.',
             ],
-            OrderStatus::Ready => $delivery
-                ? ['title' => "Order {$number} is packed", 'body' => 'It’s ready and waiting for the driver.']
-                : ['title' => "Order {$number} is ready", 'body' => "Come and collect it from {$restaurant}."],
+            OrderStatus::Ready => match ($order->fulfilment_type) {
+                FulfilmentType::Delivery => ['title' => "Order {$number} is packed", 'body' => 'It’s ready and waiting for the driver.'],
+                FulfilmentType::DineIn => ['title' => "Order {$number} is ready", 'body' => "We’re bringing it to table {$order->table_label}."],
+                FulfilmentType::Pickup => ['title' => "Order {$number} is ready", 'body' => "Come and collect it from {$restaurant}."],
+            },
             OrderStatus::OutForDelivery => [
                 'title' => "Order {$number} is on its way",
                 'body' => 'The driver has your order.',

@@ -12,11 +12,6 @@ final class TrackingUrl
 {
     public static function for(Order $order): string
     {
-        $domain = $order->restaurant->custom_domain;
-        $base = $domain !== null && $domain !== ''
-            ? "https://{$domain}"
-            : rtrim((string) config('ordering.web_url'), '/');
-
-        return "{$base}/order/{$order->public_id}?".http_build_query(['token' => $order->tracking_token]);
+        return $order->restaurant->webUrl()."/order/{$order->public_id}?".http_build_query(['token' => $order->tracking_token]);
     }
 }

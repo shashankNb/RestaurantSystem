@@ -1,13 +1,15 @@
 import { useQueryClient } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Bell, Check, CircleAlert } from 'lucide-react-native';
+import type { Metadata } from 'expo-router/server';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, RefreshControl, ScrollView, View } from 'react-native';
 
 import { useSession } from '@/auth/session';
 import { useCart } from '@/cart/cart-store';
+import { Bell, Check, CircleAlert } from '@/components/icons';
 import { OrderTotals } from '@/components/order-totals';
+import { PageHead } from '@/components/page-head';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -22,6 +24,7 @@ import { useRestaurant } from '@/lib/api/restaurant';
 import type { Menu, Order } from '@/lib/api/schemas';
 import { describeDay, formatTime } from '@/lib/format';
 import { formatMoney } from '@/lib/money';
+import { privatePage, toMetadata } from '@/lib/page-meta';
 import { enableOrderNotifications, type PushResult } from '@/lib/push';
 import { useOrderEvents } from '@/lib/realtime';
 import { cn } from '@/lib/utils';
@@ -35,12 +38,28 @@ const TONE: Record<StatusTone, string> = {
   bad: 'bg-destructive',
 };
 
+const PAGE = privatePage('Your order');
+
+/** Web: the page's title in the server's HTML. It stays out of search results. */
+export function generateMetadata(): Metadata {
+  return toMetadata(PAGE);
+}
+
+export default function OrderPage() {
+  return (
+    <>
+      <PageHead page={PAGE} />
+      <OrderScreen />
+    </>
+  );
+}
+
 /**
  * An order's live status. Opened after paying, from a notification, or from the tracking
  * link in the confirmation email (which carries ?token=). Updates arrive over Reverb; while
  * that's unavailable the screen polls.
  */
-export default function OrderScreen() {
+function OrderScreen() {
   const params = useLocalSearchParams<{ publicId: string; token?: string; redirect_status?: string }>();
   const publicId = params.publicId;
   const remembered = useRecentOrders((state) => state.orders.find((order) => order.publicId === publicId)?.trackingToken ?? null);
@@ -248,6 +267,11 @@ function WhereBlock({ order }: { order: Order }) {
           <Text className="font-body-semibold">Pickup from </Text>
           {address?.line1 ? [address.line1, address.suburb].filter(Boolean).join(', ') : order.restaurant.name}
         </Text>
+      ) : order.fulfilment_type === 'dine_in' ? (
+        <Text>
+          <Text className="font-body-semibold">Dine in at table </Text>
+          {order.table}
+        </Text>
       ) : (
         <Text>
           <Text className="font-body-semibold">Delivery to </Text>
@@ -370,6 +394,11 @@ function addToCart(order: Order, menu: Menu): { added: number; skipped: number }
 
     if (order.fulfilment_type === 'delivery' && order.delivery?.postcode) {
       cart.setPostcode(order.delivery.postcode);
+    }
+
+    // Another round at the same table.
+    if (order.fulfilment_type === 'dine_in' && order.table) {
+      cart.setTable(order.table);
     }
   }
 

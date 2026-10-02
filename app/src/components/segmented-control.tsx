@@ -41,7 +41,7 @@ export function SegmentedControl<T extends string>({
               'min-h-11 flex-1 items-center justify-center px-3',
               selected ? 'bg-foreground' : 'bg-background active:bg-accent',
               Platform.select({
-                web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:-outline-offset-4',
+                web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-4',
               }),
             )}
           >

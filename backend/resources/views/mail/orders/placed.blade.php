@@ -1,4 +1,4 @@
-<x-mail::message>
+<x-mail::message :restaurant="$restaurant">
 # Thanks, {{ $firstName }}. Order {{ $order->display_number }} is in.
 
 {{ $restaurant->name }} has your order. We’ll let you know when the kitchen accepts it.

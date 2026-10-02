@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
-import { ChevronRight } from 'lucide-react-native';
 import { Platform, Pressable, View } from 'react-native';
 
+import { ChevronRight } from '@/components/icons';
 import { ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/ui/icon';
@@ -79,7 +79,7 @@ function OrderRow({ order, timeZone }: { order: Order; timeZone: string }) {
       <Pressable
         className={cn(
           'border-border flex-row items-center gap-3 border-b py-3 active:bg-accent',
-          Platform.select({ web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2' }),
+          Platform.select({ web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid' }),
         )}
       >
         <View className="flex-1 gap-0.5">

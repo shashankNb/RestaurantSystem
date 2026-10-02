@@ -41,7 +41,22 @@ class RestaurantFactory extends Factory
             'delivery_enabled' => true,
             'default_prep_minutes' => 20,
             'auto_reject_minutes' => 10,
+            // Test-mode keys of its own Stripe account (tests fake Stripe; the webhook secret
+            // is the one tests sign their events with).
+            'stripe_publishable_key' => 'pk_test_'.Str::random(24),
+            'stripe_secret_key' => 'sk_test_'.Str::random(24),
+            'stripe_webhook_secret' => 'whsec_test_secret',
         ];
+    }
+
+    /** No Stripe keys yet: the restaurant can't take payments. */
+    public function withoutPayments(): static
+    {
+        return $this->state([
+            'stripe_publishable_key' => null,
+            'stripe_secret_key' => null,
+            'stripe_webhook_secret' => null,
+        ]);
     }
 
     public function paused(): static

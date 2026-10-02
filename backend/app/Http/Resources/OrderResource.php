@@ -31,6 +31,8 @@ class OrderResource extends JsonResource
             'status' => $this->status->value,
             'payment_status' => $this->payment_status->value,
             'fulfilment_type' => $this->fulfilment_type->value,
+            // Dine in: the table to bring it to.
+            'table' => $this->table_label,
             'scheduled_for' => $this->scheduled_for?->toIso8601ZuluString(),
             'estimated_ready_at' => $this->estimated_ready_at?->toIso8601ZuluString(),
             'placed_at' => $this->placed_at?->toIso8601ZuluString(),

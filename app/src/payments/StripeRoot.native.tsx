@@ -3,28 +3,23 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useEffect, type PropsWithChildren } from 'react';
 
-import { config } from '@/lib/config';
+import { usePublishableKey } from '@/payments/use-publishable-key';
 
-/** Set in app.config.ts from APP_APPLE_MERCHANT_ID; the same ID is in the build's entitlements. */
+/** Set in app.config.ts from the brand's appleMerchantId; the same ID is in the build's entitlements. */
 const merchantIdentifier = (Constants.expoConfig?.extra as { appleMerchantId?: string } | undefined)?.appleMerchantId;
 
 /**
- * iOS and Android: Stripe's provider for PaymentSheet. Without a publishable key the app
- * still runs; the checkout says payments aren't set up.
+ * iOS and Android: Stripe's provider for PaymentSheet, set up with the restaurant's own
+ * publishable key once it has loaded. Always rendered, so the app doesn't remount when the
+ * key arrives; without a key Stripe stays idle and the checkout says payments aren't set up.
  */
 export function StripeRoot({ children }: PropsWithChildren) {
-  if (!config.stripePublishableKey) {
-    return children;
-  }
+  const publishableKey = usePublishableKey();
 
   return (
-    <StripeProvider
-      publishableKey={config.stripePublishableKey}
-      merchantIdentifier={merchantIdentifier}
-      urlScheme={Linking.createURL('')}
-    >
+    <StripeProvider publishableKey={publishableKey ?? ''} merchantIdentifier={merchantIdentifier} urlScheme={Linking.createURL('')}>
       <>
-        <StripeRedirects />
+        {publishableKey ? <StripeRedirects /> : null}
         {children}
       </>
     </StripeProvider>

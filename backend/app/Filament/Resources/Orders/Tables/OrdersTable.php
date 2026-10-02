@@ -40,7 +40,8 @@ class OrdersTable
                 TextColumn::make('fulfilment_type')
                     ->label('Type')
                     ->badge()
-                    ->color('gray'),
+                    ->color('gray')
+                    ->description(fn (Order $record): ?string => $record->table_label === null ? null : "Table {$record->table_label}"),
                 TextColumn::make('scheduled_for')
                     ->label('Wanted for')
                     ->dateTime('D j M, g:i a')

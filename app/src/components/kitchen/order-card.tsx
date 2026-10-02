@@ -8,6 +8,7 @@ import { Text } from '@/components/ui/text';
 import { ago, at, minutesUntil } from '@/kitchen/time';
 import { errorMessage } from '@/lib/api/client';
 import type { StaffOrder } from '@/lib/api/schemas';
+import { fulfilmentLabel } from '@/lib/fulfilment';
 import { useAcceptOrder, useAdvanceOrder, useRejectOrder } from '@/lib/api/staff';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
@@ -46,7 +47,7 @@ export function OrderCard({ order, now, timeZone, currency }: CardProps) {
   return (
     <View
       role="group"
-      aria-label={`Order ${number}${isNew ? ', new' : ''}`}
+      aria-label={`Order ${number}${order.table ? `, table ${order.table}` : ''}${isNew ? ', new' : ''}`}
       className={cn('bg-background gap-3 rounded-lg p-4', isNew ? 'border-marigold border-[3px]' : 'border-border border')}
     >
       <View className="flex-row items-start justify-between gap-3">
@@ -59,8 +60,12 @@ export function OrderCard({ order, now, timeZone, currency }: CardProps) {
           ) : null}
         </View>
         <View className="flex-1 items-end gap-0.5">
+          {order.fulfilment_type === 'dine_in' ? (
+            // Where it goes is what matters: the table, large.
+            <Text className="font-display-bold text-heading text-right">Table {order.table}</Text>
+          ) : null}
           <Text className="font-body-semibold text-right">
-            {order.fulfilment_type === 'pickup' ? 'Pickup' : 'Delivery'} ·{' '}
+            {fulfilmentLabel(order.fulfilment_type)} ·{' '}
             {order.scheduled_for ? `for ${at(order.scheduled_for, timeZone, now)}` : 'as soon as possible'}
           </Text>
           {order.placed_at ? <Text variant="muted">Ordered {ago(order.placed_at, now)}</Text> : null}
@@ -142,7 +147,8 @@ function Timing({ order, now, timeZone, currency }: CardProps) {
     line = left >= 0 ? `Ready by ${at(order.estimated_ready_at, timeZone, now)}` : `Late by ${-left} min`;
     urgent = left < 0;
   } else if (order.status === 'ready' && order.ready_at) {
-    line = `${order.fulfilment_type === 'pickup' ? 'Waiting for pickup' : 'Waiting for the driver'} since ${at(order.ready_at, timeZone, now)}`;
+    const waiting = { pickup: 'Waiting for pickup', delivery: 'Waiting for the driver', dine_in: `Ready to take to table ${order.table ?? ''}` };
+    line = `${waiting[order.fulfilment_type]} since ${at(order.ready_at, timeZone, now)}`;
   }
 
   return (
@@ -199,9 +205,9 @@ function Actions({
     accepted: { label: 'Start preparing', status: 'preparing' },
     preparing: { label: 'Mark ready', status: 'ready' },
     ready:
-      order.fulfilment_type === 'pickup'
-        ? { label: 'Collected', status: 'completed' }
-        : { label: 'Out for delivery', status: 'out_for_delivery' },
+      order.fulfilment_type === 'delivery'
+        ? { label: 'Out for delivery', status: 'out_for_delivery' }
+        : { label: order.fulfilment_type === 'dine_in' ? 'Served' : 'Collected', status: 'completed' },
     out_for_delivery: { label: 'Delivered', status: 'completed' },
   };
   const step = next[order.status];

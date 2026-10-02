@@ -1,38 +1,55 @@
-import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { loadStripe, type Appearance, type Stripe, type StripeElementsOptions } from '@stripe/stripe-js';
-import { CircleAlert } from 'lucide-react-native';
+import { Elements, ExpressCheckoutElement, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import {
+  loadStripe,
+  type Appearance,
+  type Stripe,
+  type StripeElementsOptions,
+  type StripeExpressCheckoutElementConfirmEvent,
+} from '@stripe/stripe-js';
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
 
+import { CircleAlert } from '@/components/icons';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Text } from '@/components/ui/text';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { config } from '@/lib/config';
 import { formatMoney } from '@/lib/money';
+import { OrDivider } from '@/payments/or-divider';
 import { PaymentsNotSetUp } from '@/payments/payments-not-set-up';
+import { usePublishableKey } from '@/payments/use-publishable-key';
 import type { Scheme } from '@/theme/brand';
 import { PALETTE } from '@/theme/palette';
 
 import { PAYMENT_FAILED_MESSAGE, type PaymentFormComponent, type PaymentFormProps } from './types';
 
-let stripePromise: Promise<Stripe | null> | null = null;
+const stripePromises = new Map<string, Promise<Stripe | null>>();
 
-/** Stripe.js, loaded from Stripe on first use (never while rendering on the server). */
-function getStripe(): Promise<Stripe | null> {
-  stripePromise ??= loadStripe(config.stripePublishableKey);
+/**
+ * Stripe.js for the restaurant's own Stripe account, loaded from Stripe on first use (never
+ * while rendering on the server).
+ */
+function getStripe(publishableKey: string): Promise<Stripe | null> {
+  let promise = stripePromises.get(publishableKey);
 
-  return stripePromise;
+  if (promise === undefined) {
+    promise = loadStripe(publishableKey);
+    stripePromises.set(publishableKey, promise);
+  }
+
+  return promise;
 }
 
 /**
- * The web: Stripe's Payment Element (cards, plus Apple Pay and Google Pay where the
- * browser offers them). The order is created only when "Place order" is tapped, then the
+ * The web. Where the browser has Apple Pay (Safari) or Google Pay (Chrome) ready, Stripe's
+ * Express Checkout button comes first: one tap, no card details. Below it, the Payment
+ * Element for cards. Either way the order is created only once the customer pays, then the
  * payment is confirmed against it (Stripe's deferred-intent flow).
  */
 export const PaymentForm: PaymentFormComponent = (props) => {
   const scheme: Scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
+  const publishableKey = usePublishableKey();
 
   const options = useMemo<StripeElementsOptions>(
     () => ({
@@ -45,23 +62,83 @@ export const PaymentForm: PaymentFormComponent = (props) => {
     [props.amountCents, props.currency, scheme],
   );
 
-  if (!config.stripePublishableKey) {
+  if (publishableKey === undefined) {
+    return null;
+  }
+
+  if (publishableKey === null) {
     return <PaymentsNotSetUp />;
   }
 
   return (
-    <Elements stripe={getStripe()} options={options}>
-      <PaymentElementForm {...props} />
+    <Elements key={publishableKey} stripe={getStripe(publishableKey)} options={options}>
+      <PaymentElementForm {...props} scheme={scheme} />
     </Elements>
   );
 };
 
-function PaymentElementForm({ amountCents, currency, disabled, validate, createPayment, onPaid, onError }: PaymentFormProps) {
+function PaymentElementForm({
+  amountCents,
+  currency,
+  disabled,
+  validate,
+  createPayment,
+  onPaid,
+  onError,
+  scheme,
+}: PaymentFormProps & { scheme: Scheme }) {
   const stripe = useStripe();
   const elements = useElements();
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [walletShown, setWalletShown] = useState(false);
+
+  // After the wallet sheet: create the order, then confirm the payment with the wallet.
+  const payWithWallet = async (event: StripeExpressCheckoutElementConfirmEvent) => {
+    if (stripe === null || elements === null) {
+      event.paymentFailed({ reason: 'fail' });
+
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const submitted = await elements.submit();
+
+      if (submitted.error) {
+        event.paymentFailed({ reason: 'fail' });
+
+        return;
+      }
+
+      const payment = await createPayment();
+
+      if (payment === null) {
+        event.paymentFailed({ reason: 'fail' });
+
+        return;
+      }
+
+      const { error } = await stripe.confirmPayment({
+        elements,
+        clientSecret: payment.clientSecret,
+        confirmParams: { return_url: `${window.location.origin}${payment.returnPath}` },
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        onError(error.type === 'card_error' || error.type === 'validation_error' ? (error.message ?? PAYMENT_FAILED_MESSAGE) : PAYMENT_FAILED_MESSAGE);
+
+        return;
+      }
+
+      onPaid();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const pay = async () => {
     if (stripe === null || elements === null || !validate()) {
@@ -118,14 +195,37 @@ function PaymentElementForm({ amountCents, currency, disabled, validate, createP
 
   return (
     <View className="gap-5">
+      <ExpressCheckoutElement
+        options={{
+          buttonType: { applePay: 'order', googlePay: 'order' },
+          buttonTheme: { applePay: scheme === 'dark' ? 'white' : 'black', googlePay: scheme === 'dark' ? 'white' : 'black' },
+          buttonHeight: 48,
+          // Wallets only, wherever the browser can take them: Google Pay in Chrome and Edge even
+          // before a card is saved (it helps add one), Apple Pay in Safari and, on computers, in
+          // Chrome and Edge through a QR code for the customer's iPhone. Stripe still leaves them
+          // out where they can't work (and on domains not registered with it, such as localhost).
+          paymentMethods: { applePay: 'always', googlePay: 'always', link: 'never', paypal: 'never', amazonPay: 'never', klarna: 'never' },
+          layout: { maxColumns: 2, maxRows: 1 },
+        }}
+        onReady={({ availablePaymentMethods }) => setWalletShown(availablePaymentMethods !== undefined && Object.values(availablePaymentMethods).some(Boolean))}
+        // Opens the wallet only once the checkout form is complete (checked within the tap).
+        onClick={(event) => {
+          if (!disabled && !busy && validate()) {
+            event.resolve();
+          }
+        }}
+        onConfirm={(event) => void payWithWallet(event)}
+      />
+      {walletShown ? <OrDivider /> : null}
       {ready ? null : <Skeleton className="h-40 w-full" />}
       <PaymentElement
         options={{
           layout: 'tabs',
           // Name, email and phone come from the checkout form; don't ask twice. Stripe's Link
-          // would ask for the email again to save the card with Stripe, so it's off.
+          // would ask for the email again to save the card with Stripe, so it's off. Apple Pay
+          // and Google Pay are the buttons above, not a second time in here.
           fields: { billingDetails: { name: 'never', email: 'never', phone: 'never' } },
-          wallets: { link: 'never' },
+          wallets: { applePay: 'never', googlePay: 'never', link: 'never' },
         }}
         onReady={() => setReady(true)}
         onLoadError={() => setLoadError(true)}

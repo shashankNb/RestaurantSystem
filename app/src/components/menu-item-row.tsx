@@ -46,6 +46,8 @@ export function MenuItemRow({ item, inCart, currency }: { item: MenuItem; inCart
           contentFit="cover"
           transition={150}
           accessible={false}
+          // Decorative; on the web, expo-image takes alt="" from this.
+          accessibilityLabel=""
         />
       ) : null}
     </>
@@ -69,7 +71,7 @@ export function MenuItemRow({ item, inCart, currency }: { item: MenuItem; inCart
           rowClass,
           'active:bg-accent',
           Platform.select({
-            web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:-outline-offset-2',
+            web: 'hover:bg-accent focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2',
           }),
         )}
       >

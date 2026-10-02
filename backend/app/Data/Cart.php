@@ -21,12 +21,14 @@ final readonly class Cart
         /** Null means as soon as possible. */
         public ?CarbonImmutable $scheduledFor = null,
         public ?string $promoCode = null,
+        /** Dine in: the table's label, e.g. "12". */
+        public ?string $table = null,
     ) {}
 
     /**
      * From a validated request (QuoteRequest and, in phase 3, the order request).
      *
-     * @param  array{fulfilment_type: string, items: list<array{menu_item_id: int|string, quantity: int|string, modifier_option_ids?: list<int|string>|null, notes?: string|null}>, postcode?: string|null, scheduled_for?: string|null, promo_code?: string|null}  $data
+     * @param  array{fulfilment_type: string, items: list<array{menu_item_id: int|string, quantity: int|string, modifier_option_ids?: list<int|string>|null, notes?: string|null}>, postcode?: string|null, scheduled_for?: string|null, promo_code?: string|null, table?: string|null}  $data
      */
     public static function fromValidated(array $data): self
     {
@@ -41,6 +43,7 @@ final readonly class Cart
             postcode: isset($data['postcode']) && trim($data['postcode']) !== '' ? trim($data['postcode']) : null,
             scheduledFor: isset($data['scheduled_for']) ? CarbonImmutable::parse($data['scheduled_for'])->utc() : null,
             promoCode: isset($data['promo_code']) && trim($data['promo_code']) !== '' ? trim($data['promo_code']) : null,
+            table: isset($data['table']) && trim($data['table']) !== '' ? trim($data['table']) : null,
         );
     }
 }

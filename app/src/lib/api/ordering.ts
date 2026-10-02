@@ -10,6 +10,7 @@ const base = `/restaurants/${encodeURIComponent(config.restaurantSlug)}`;
 export interface CartRequest {
   fulfilment_type: FulfilmentType;
   postcode: string | null;
+  table: string | null;
   scheduled_for: string | null;
   promo_code: string | null;
   items: { menu_item_id: number; quantity: number; modifier_option_ids: number[]; notes: string | null }[];
@@ -20,13 +21,16 @@ export function cartRequest(cart: {
   lines: CartLine[];
   fulfilment: FulfilmentType;
   postcode: string | null;
+  table: string | null;
   scheduledFor: string | null;
   promoCode: string | null;
 }): CartRequest {
   return {
     fulfilment_type: cart.fulfilment,
     postcode: cart.fulfilment === 'delivery' ? cart.postcode : null,
-    scheduled_for: cart.scheduledFor,
+    table: cart.fulfilment === 'dine_in' ? cart.table : null,
+    // At a table it's always as soon as possible.
+    scheduled_for: cart.fulfilment === 'dine_in' ? null : cart.scheduledFor,
     promo_code: cart.promoCode,
     items: cart.lines.map((line) => ({
       menu_item_id: line.menuItemId,

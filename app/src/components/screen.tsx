@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils';
 /**
  * The frame every screen sits in: the page colour, clear of the status bar, with the
  * offline banner on top. Screens that draw under the status bar themselves (the menu's
- * header) pass `underStatusBar` and place the banner where it fits.
+ * header) pass `underStatusBar` and place the banner where it fits. On the web it's the
+ * page's main landmark, for screen reader users.
  */
 export function Screen({
   children,
@@ -19,6 +20,7 @@ export function Screen({
 
   return (
     <View
+      role="main"
       className={cn('bg-background flex-1', className)}
       style={underStatusBar ? undefined : { paddingTop: insets.top }}
     >

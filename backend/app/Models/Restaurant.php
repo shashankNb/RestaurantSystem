@@ -2,10 +2,14 @@
 
 namespace App\Models;
 
+use App\Casts\Secret;
 use App\Enums\RestaurantRole;
+use App\Payments\WalletSetup;
+use App\Support\RestaurantOrigins;
 use Database\Factories\RestaurantFactory;
 use Filament\Models\Contracts\HasAvatar;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Attributes\RouteKey;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,11 +22,15 @@ use Illuminate\Support\Facades\Storage;
  * The tenant. Everything a restaurant owns hangs off one of these relationships.
  *
  * @property array{line1?: ?string, line2?: ?string, suburb?: ?string, state?: ?string, postcode?: ?string, country?: ?string}|null $address
+ * @property array<string, mixed>|null $stripe_wallets
  */
 #[Fillable([
     'name',
     'slug',
     'custom_domain',
+    'stripe_publishable_key',
+    'stripe_secret_key',
+    'stripe_webhook_secret',
     'description',
     'timezone',
     'currency',
@@ -36,14 +44,31 @@ use Illuminate\Support\Facades\Storage;
     'is_accepting_orders',
     'pickup_enabled',
     'delivery_enabled',
+    'dine_in_enabled',
     'default_prep_minutes',
     'auto_reject_minutes',
 ])]
+// Its own Stripe account's secrets: never in a response, a log or an export.
+#[Hidden(['stripe_secret_key', 'stripe_webhook_secret'])]
 #[RouteKey('slug')]
 class Restaurant extends Model implements HasAvatar
 {
     /** @use HasFactory<RestaurantFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        // Its custom domain may have changed: the API's CORS origins come from these.
+        static::saved(fn () => RestaurantOrigins::forget());
+        static::deleted(fn () => RestaurantOrigins::forget());
+
+        // The last Apple Pay and Google Pay check was of the old key's Stripe account.
+        static::saving(function (Restaurant $restaurant): void {
+            if ($restaurant->isDirty('stripe_secret_key') && ! $restaurant->isDirty('stripe_wallets')) {
+                $restaurant->stripe_wallets = null;
+            }
+        });
+    }
 
     /**
      * @return array<string, string>
@@ -52,9 +77,14 @@ class Restaurant extends Model implements HasAvatar
     {
         return [
             'address' => 'array',
+            // Encrypted with APP_KEY: losing or changing it means entering the keys again.
+            'stripe_secret_key' => Secret::class,
+            'stripe_webhook_secret' => Secret::class,
+            'stripe_wallets' => 'array',
             'is_accepting_orders' => 'boolean',
             'pickup_enabled' => 'boolean',
             'delivery_enabled' => 'boolean',
+            'dine_in_enabled' => 'boolean',
             'default_prep_minutes' => 'integer',
             'auto_reject_minutes' => 'integer',
         ];
@@ -138,6 +168,84 @@ class Restaurant extends Model implements HasAvatar
     public function deliveryZones(): HasMany
     {
         return $this->hasMany(DeliveryZone::class);
+    }
+
+    /**
+     * @return HasMany<DiningTable, $this>
+     */
+    public function diningTables(): HasMany
+    {
+        // Each table knows its restaurant without another query (its QR code links to the
+        // restaurant's own site).
+        return $this->hasMany(DiningTable::class)->chaperone();
+    }
+
+    /**
+     * The tables customers can order from, in the order staff set (then by label, so "2"
+     * comes before "10").
+     *
+     * @return HasMany<DiningTable, $this>
+     */
+    public function activeDiningTables(): HasMany
+    {
+        return $this->diningTables()
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderByRaw('LENGTH(label)')
+            ->orderBy('label');
+    }
+
+    /**
+     * Payments go to the restaurant's own Stripe account, so it can take orders only once its
+     * keys are in: the secret key to charge, and the webhook secret to hear that a payment
+     * went through (without it, paid orders would never reach the kitchen).
+     */
+    public function acceptsPayments(): bool
+    {
+        // Test keys or live keys: test keys take test payments, with Stripe's test cards.
+        return str_starts_with((string) $this->stripe_publishable_key, 'pk_')
+            && filled($this->stripe_secret_key)
+            && filled($this->stripe_webhook_secret);
+    }
+
+    /**
+     * The restaurant's ordering website, for QR codes and links in emails: its own domain,
+     * or else the shared one (ORDERING_WEB_URL).
+     */
+    public function webUrl(): string
+    {
+        return filled($this->custom_domain)
+            ? "https://{$this->custom_domain}"
+            : rtrim((string) config('ordering.web_url'), '/');
+    }
+
+    /**
+     * The website's domain, for registering with the restaurant's Stripe account so Apple Pay
+     * and Google Pay show there. Null while it has no public one: Stripe can't register
+     * localhost, an IP address or a .test or .local name.
+     */
+    public function walletDomain(): ?string
+    {
+        $host = strtolower((string) parse_url($this->webUrl(), PHP_URL_HOST));
+
+        if ($host === '' || $host === 'localhost' || filter_var($host, FILTER_VALIDATE_IP) !== false
+            || str_ends_with($host, '.localhost') || str_ends_with($host, '.test') || str_ends_with($host, '.local')) {
+            return null;
+        }
+
+        return $host;
+    }
+
+    /** The last check of its Stripe account for Apple Pay and Google Pay, if any. */
+    public function walletSetup(): ?WalletSetup
+    {
+        return WalletSetup::fromArray($this->stripe_wallets);
+    }
+
+    /** Customers can order to a table: dine-in is on and there's a table to choose. */
+    public function offersDineIn(): bool
+    {
+        return $this->dine_in_enabled && $this->activeDiningTables->isNotEmpty();
     }
 
     /**

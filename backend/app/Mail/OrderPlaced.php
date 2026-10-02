@@ -70,12 +70,14 @@ class OrderPlaced extends Mailable implements ShouldQueue
         );
     }
 
-    /** "Pickup, as soon as possible" or "Delivery to Southbank 3006, today at 7 pm". */
+    /** "Pickup, as soon as possible", "Dine in at table 12, as soon as possible" or "Delivery to Southbank 3006, today at 7 pm". */
     private function fulfilmentSummary(Order $order, CarbonImmutable $placedAt): string
     {
-        $how = $order->fulfilment_type === FulfilmentType::Delivery
-            ? trim("Delivery to {$order->delivery_suburb} {$order->delivery_postcode}")
-            : 'Pickup';
+        $how = match ($order->fulfilment_type) {
+            FulfilmentType::Delivery => trim("Delivery to {$order->delivery_suburb} {$order->delivery_postcode}"),
+            FulfilmentType::DineIn => "Dine in at table {$order->table_label}",
+            FulfilmentType::Pickup => 'Pickup',
+        };
         $time = $order->scheduled_for === null
             ? 'as soon as possible'
             : LocalTime::describe(CarbonImmutable::parse($order->scheduled_for), $order->restaurant->timezone, $placedAt);

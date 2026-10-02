@@ -1,3 +1,5 @@
+import { brand } from '@/lib/config';
+
 /**
  * Turns a restaurant's brand colour (from its settings) into the "Dhaka maroon" tokens of
  * the design, for light and dark mode, keeping WCAG AA contrast whatever colour the owner
@@ -22,7 +24,11 @@ export interface BrandColors {
 export const PAGE = { light: '#FCFBF8', dark: '#1A1411' } as const;
 export const INK = { light: '#1E1714', dark: '#F2EDE6' } as const;
 
-export const DEFAULT_BRAND_COLOR = '#7A1F2B';
+/**
+ * The brand colour until the restaurant's settings load: its brand's (brand.json), or the
+ * design's maroon.
+ */
+export const DEFAULT_BRAND_COLOR = brand && /^#[0-9a-f]{6}$/i.test(brand.brandColor) ? brand.brandColor : '#7A1F2B';
 
 const STEP = 0.005;
 

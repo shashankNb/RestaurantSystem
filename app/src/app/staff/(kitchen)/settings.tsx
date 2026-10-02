@@ -1,7 +1,9 @@
+import type { Metadata } from 'expo-router/server';
 import type { ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 
 import { FormError } from '@/components/form-error';
+import { PageHead } from '@/components/page-head';
 import { ErrorState, LoadingState } from '@/components/states';
 import { SwitchRow } from '@/components/switch-row';
 import { Text } from '@/components/ui/text';
@@ -11,12 +13,29 @@ import { useMenu } from '@/lib/api/menu';
 import { useRestaurant } from '@/lib/api/restaurant';
 import type { Menu, ModifierGroup } from '@/lib/api/schemas';
 import { useSetAcceptingOrders, useSetItemAvailable, useSetOptionAvailable } from '@/lib/api/staff';
+import { privatePage, toMetadata } from '@/lib/page-meta';
+
+const PAGE = privatePage('Kitchen settings');
+
+/** Web: the page's title in the server's HTML. It stays out of search results. */
+export function generateMetadata(): Metadata {
+  return toMetadata(PAGE);
+}
+
+export default function KitchenSettingsPage() {
+  return (
+    <>
+      <PageHead page={PAGE} />
+      <KitchenSettings />
+    </>
+  );
+}
 
 /**
  * The kitchen's switches: pause online ordering, and mark dishes or choices (such as a
  * filling) sold out. Customers see each change on the menu straight away.
  */
-export default function KitchenSettings() {
+function KitchenSettings() {
   const { started } = useKitchen();
   const restaurant = useRestaurant();
   const menu = useMenu();

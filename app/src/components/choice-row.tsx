@@ -1,6 +1,6 @@
-import { Check } from 'lucide-react-native';
 import { Platform, Pressable, View } from 'react-native';
 
+import { Check } from '@/components/icons';
 import { Icon } from '@/components/ui/icon';
 import { Text } from '@/components/ui/text';
 import { spaceActivates } from '@/lib/keyboard';
@@ -41,7 +41,7 @@ export function ChoiceRow({
       className={cn(
         'min-h-12 flex-row items-center gap-3 rounded-md py-2',
         Platform.select({
-          web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-offset-2',
+          web: 'focus-visible:outline-ring outline-none focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2',
         }),
         disabled && 'opacity-50',
       )}

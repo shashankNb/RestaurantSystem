@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AllowRestaurantOrigins;
 use App\Payments\PaymentsUnavailable;
 use App\Services\InvalidOrderTransition;
 use Illuminate\Foundation\Application;
@@ -25,7 +26,8 @@ return Application::configure(basePath: dirname(__DIR__))
         'middleware' => ['auth:sanctum'],
     ])
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Before HandleCors: each restaurant's own website may call the API.
+        $middleware->prepend(AllowRestaurantOrigins::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

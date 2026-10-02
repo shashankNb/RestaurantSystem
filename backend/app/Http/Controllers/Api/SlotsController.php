@@ -22,9 +22,11 @@ class SlotsController extends Controller
         $now = CarbonImmutable::now();
         $type = $request->fulfilmentType();
 
-        [$offered, $leadMinutes] = $type === FulfilmentType::Pickup
-            ? [$restaurant->pickup_enabled, $restaurant->default_prep_minutes]
-            : $this->delivery($restaurant, $delivery, $request->string('postcode')->toString());
+        [$offered, $leadMinutes] = match ($type) {
+            FulfilmentType::Pickup => [$restaurant->pickup_enabled, $restaurant->default_prep_minutes],
+            FulfilmentType::DineIn => [$restaurant->offersDineIn(), $restaurant->default_prep_minutes],
+            FulfilmentType::Delivery => $this->delivery($restaurant, $delivery, $request->string('postcode')->toString()),
+        };
 
         $status = $hours->status($restaurant, $now);
 
@@ -35,7 +37,8 @@ class SlotsController extends Controller
                     'available' => $offered && $status->isOpen && $restaurant->is_accepting_orders,
                     'estimated_minutes' => $leadMinutes,
                 ],
-                'slots' => $offered
+                // At a table it's now or not at all: no times for later.
+                'slots' => $offered && $type !== FulfilmentType::DineIn
                     ? array_map(fn (CarbonImmutable $slot): string => $slot->toIso8601ZuluString(), $hours->slots($restaurant, $now, $leadMinutes))
                     : [],
             ],

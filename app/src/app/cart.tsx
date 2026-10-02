@@ -1,17 +1,20 @@
-import { Link, router, useLocalSearchParams } from 'expo-router';
-import { CircleAlert } from 'lucide-react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import type { Metadata } from 'expo-router/server';
 import { useId, useState, type ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useCart, type CartLine } from '@/cart/cart-store';
+import { useCart } from '@/cart/cart-store';
+import { CartLineRow } from '@/components/cart-line-row';
+import { CircleAlert } from '@/components/icons';
 import { OrderTotals } from '@/components/order-totals';
+import { PageHead } from '@/components/page-head';
 import { PromoCodeField } from '@/components/promo-code-field';
-import { QuantityStepper } from '@/components/quantity-stepper';
 import { Screen } from '@/components/screen';
 import { ScreenHeader } from '@/components/screen-header';
 import { SegmentedControl } from '@/components/segmented-control';
 import { EmptyState, ErrorState } from '@/components/states';
+import { TablePicker } from '@/components/table-picker';
 import { WhenPicker } from '@/components/when-picker';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -22,32 +25,54 @@ import { Text } from '@/components/ui/text';
 import { errorMessage } from '@/lib/api/client';
 import { cartRequest, useQuote } from '@/lib/api/ordering';
 import { useRestaurant } from '@/lib/api/restaurant';
-import type { DeliveryZone, Quote, QuoteError } from '@/lib/api/schemas';
+import type { DeliveryZone, FulfilmentType, Quote, QuoteError } from '@/lib/api/schemas';
+import { fulfilmentLabel, fulfilmentOptions } from '@/lib/fulfilment';
 import { formatMoney } from '@/lib/money';
+import { privatePage, toMetadata } from '@/lib/page-meta';
 
 /** Quote errors shown next to their own field rather than in the list at the bottom. */
-const FIELD_ERRORS = ['postcode', 'scheduled_for', 'promo_code'];
+const FIELD_ERRORS = ['postcode', 'table', 'scheduled_for', 'promo_code'];
+
+const PAGE = privatePage('Your cart');
+
+/** Web: the page's title in the server's HTML. It stays out of search results. */
+export function generateMetadata(): Metadata {
+  return toMetadata(PAGE);
+}
+
+export default function CartPage() {
+  return (
+    <>
+      <PageHead page={PAGE} />
+      <CartScreen />
+    </>
+  );
+}
 
 /**
  * The cart: lines to change or remove, pickup or delivery, when, a promo code and the
  * server's prices. "Check out" is available once the quote says the order can be placed.
  */
-export default function CartScreen() {
+function CartScreen() {
   const lines = useCart((state) => state.lines);
   const fulfilment = useCart((state) => state.fulfilment);
   const postcode = useCart((state) => state.postcode);
   const scheduledFor = useCart((state) => state.scheduledFor);
   const promoCode = useCart((state) => state.promoCode);
-  const { setQuantity, remove, setFulfilment, setPostcode, setScheduledFor, setPromoCode } = useCart.getState();
+  const table = useCart((state) => state.table);
+  const { setQuantity, remove, setFulfilment, setPostcode, setScheduledFor, setPromoCode, setTable } = useCart.getState();
   const { data: restaurant } = useRestaurant();
   const insets = useSafeAreaInsets();
   // From "Order again": dishes that couldn't go back in the cart.
   const { skipped } = useLocalSearchParams<{ skipped?: string }>();
 
-  // Delivery can't be priced until there's a postcode.
+  // Delivery can't be priced until there's a postcode, nor dine in until there's a table.
   const needsPostcode = fulfilment === 'delivery' && postcode === null;
+  const needsTable = fulfilment === 'dine_in' && table === null;
   const request =
-    lines.length > 0 && !needsPostcode ? cartRequest({ lines, fulfilment, postcode, scheduledFor, promoCode }) : null;
+    lines.length > 0 && !needsPostcode && !needsTable
+      ? cartRequest({ lines, fulfilment, postcode, table, scheduledFor, promoCode })
+      : null;
   const quote = useQuote(request);
 
   if (lines.length === 0) {
@@ -76,8 +101,7 @@ export default function CartScreen() {
   const fieldError = (field: string) => errors.find((error) => error.field === field)?.message;
   const otherErrors = errors.filter((error) => !FIELD_ERRORS.includes(error.field ?? '') && !isLineError(error));
   const canCheckOut = current?.can_place_order === true;
-  const pickupEnabled = restaurant?.fulfilment.pickup.enabled ?? true;
-  const deliveryEnabled = restaurant?.fulfilment.delivery.enabled ?? false;
+  const options = fulfilmentOptions(restaurant);
 
   return (
     <Screen>
@@ -113,17 +137,9 @@ export default function CartScreen() {
           </Button>
         </View>
 
-        <Section title={pickupEnabled && deliveryEnabled ? 'Pickup or delivery' : fulfilment === 'pickup' ? 'Pickup' : 'Delivery'}>
-          {pickupEnabled && deliveryEnabled ? (
-            <SegmentedControl
-              label="Pickup or delivery"
-              value={fulfilment}
-              onChange={setFulfilment}
-              options={[
-                { value: 'pickup', label: 'Pickup' },
-                { value: 'delivery', label: 'Delivery' },
-              ]}
-            />
+        <Section title={options.length > 1 ? 'How would you like it?' : fulfilmentLabel(fulfilment)}>
+          {options.length > 1 ? (
+            <SegmentedControl label="How would you like your order?" value={fulfilment} onChange={setFulfilment} options={options} />
           ) : null}
           {fulfilment === 'delivery' ? (
             <PostcodeField
@@ -132,6 +148,13 @@ export default function CartScreen() {
               error={fieldError('postcode')}
               zone={current?.fulfilment.delivery_zone ?? null}
               currency={currency}
+            />
+          ) : fulfilment === 'dine_in' ? (
+            <TablePicker
+              tables={restaurant?.fulfilment.dine_in.tables ?? []}
+              value={table}
+              onChange={setTable}
+              error={fieldError('table')}
             />
           ) : (
             <Text className="text-muted-foreground">
@@ -142,16 +165,25 @@ export default function CartScreen() {
           )}
         </Section>
 
-        <Section title={fulfilment === 'pickup' ? 'Pickup time' : 'Delivery time'}>
-          <WhenPicker
-            fulfilment={fulfilment}
-            postcode={postcode}
-            scheduledFor={scheduledFor}
-            onChange={setScheduledFor}
-            timeZone={timeZone}
-            error={fieldError('scheduled_for')}
-          />
-        </Section>
+        {/* At a table it's always as soon as possible. */}
+        {fulfilment === 'dine_in' ? (
+          fieldError('scheduled_for') ? (
+            <Text role="alert" className="text-destructive">
+              {fieldError('scheduled_for')}
+            </Text>
+          ) : null
+        ) : (
+          <Section title={fulfilment === 'pickup' ? 'Pickup time' : 'Delivery time'}>
+            <WhenPicker
+              fulfilment={fulfilment}
+              postcode={postcode}
+              scheduledFor={scheduledFor}
+              onChange={setScheduledFor}
+              timeZone={timeZone}
+              error={fieldError('scheduled_for')}
+            />
+          </Section>
+        )}
 
         <PromoCodeField
           code={promoCode}
@@ -169,6 +201,7 @@ export default function CartScreen() {
             onRetry={() => void quote.refetch()}
             retrying={quote.isFetching}
             needsPostcode={needsPostcode}
+            needsTable={needsTable}
             fulfilment={fulfilment}
             currency={currency}
           />
@@ -190,48 +223,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
     <View className="gap-3">
       <Text variant="heading">{title}</Text>
       {children}
-    </View>
-  );
-}
-
-function CartLineRow({
-  line,
-  lineTotalCents,
-  problems,
-  currency,
-  onQuantity,
-  onRemove,
-}: {
-  line: CartLine;
-  lineTotalCents: number | undefined;
-  problems: string[];
-  currency: string;
-  onQuantity: (quantity: number) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <View className="border-border gap-3 border-b py-4">
-      <View className="flex-row justify-between gap-4">
-        <View className="flex-1 gap-0.5">
-          <Text variant="item">{line.name}</Text>
-          {line.optionSummary ? <Text variant="muted">{line.optionSummary}</Text> : null}
-          {line.notes ? <Text variant="muted">Note: {line.notes}</Text> : null}
-        </View>
-        <Text className="font-body-semibold">{formatMoney(lineTotalCents ?? line.unitPriceCents * line.quantity, currency)}</Text>
-      </View>
-      {problems.map((problem) => (
-        <Text key={problem} role="alert" className="text-destructive text-sm">
-          {problem}
-        </Text>
-      ))}
-      <View className="flex-row items-center justify-between gap-3">
-        <QuantityStepper value={line.quantity} onChange={onQuantity} onRemove={onRemove} itemName={line.name} />
-        <Link href={{ pathname: '/item/[id]', params: { id: String(line.menuItemId), line: line.id } }} asChild>
-          <Button variant="ghost" size="sm" aria-label={`Change ${line.name}`}>
-            <Text>Change</Text>
-          </Button>
-        </Link>
-      </View>
     </View>
   );
 }
@@ -305,6 +296,7 @@ function Summary({
   onRetry,
   retrying,
   needsPostcode,
+  needsTable,
   fulfilment,
   currency,
 }: {
@@ -314,11 +306,16 @@ function Summary({
   onRetry: () => void;
   retrying: boolean;
   needsPostcode: boolean;
-  fulfilment: 'pickup' | 'delivery';
+  needsTable: boolean;
+  fulfilment: FulfilmentType;
   currency: string;
 }) {
   if (needsPostcode) {
     return <Text className="text-muted-foreground">Enter your postcode to see the delivery fee and total.</Text>;
+  }
+
+  if (needsTable) {
+    return <Text className="text-muted-foreground">Choose your table to see your total.</Text>;
   }
 
   if (loading) {

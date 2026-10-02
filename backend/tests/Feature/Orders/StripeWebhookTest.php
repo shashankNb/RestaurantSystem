@@ -81,14 +81,14 @@ it('rejects a request that isn’t signed by Stripe', function (Closure $send) {
 })->with([
     'wrong secret' => [fn (array $event) => StripeEvents::send($event, secret: 'whsec_someone_else')],
     'signed too long ago' => [fn (array $event) => StripeEvents::send($event, signedAt: time() - 600)],
-    'no signature' => [fn (array $event) => test()->postJson('/api/v1/stripe/webhook', $event)],
+    'no signature' => [fn (array $event) => test()->postJson(StripeEvents::url($event), $event)],
     'body changed after signing' => [function (array $event) {
         $body = (string) json_encode($event);
         $signedAt = time();
         $signature = hash_hmac('sha256', "{$signedAt}.{$body}", StripeEvents::SECRET);
         $event['data']['object']['amount_received'] = 1;
 
-        return test()->call('POST', '/api/v1/stripe/webhook', server: [
+        return test()->call('POST', StripeEvents::url($event), server: [
             'HTTP_STRIPE_SIGNATURE' => "t={$signedAt},v1={$signature}",
             'CONTENT_TYPE' => 'application/json',
         ], content: (string) json_encode($event));
@@ -186,7 +186,65 @@ it('won’t place an order whose payment doesn’t match its total', function ()
 it('acknowledges events it doesn’t use without storing them', function () {
     $event = ['id' => 'evt_other', 'object' => 'event', 'type' => 'customer.created', 'data' => ['object' => ['id' => 'cus_1', 'object' => 'customer']]];
 
-    StripeEvents::send($event)->assertOk()->assertJsonPath('received', true);
+    StripeEvents::send($event, restaurant: $this->menu->restaurant->slug)->assertOk()->assertJsonPath('received', true);
 
     expect(StripeEvent::query()->count())->toBe(0);
+});
+
+describe('each restaurant’s own webhook', function () {
+    it('refuses an event signed with another restaurant’s secret', function () {
+        $order = unpaidOrder($this->menu);
+        $other = MomoMenu::create();
+        $other->restaurant->update(['stripe_webhook_secret' => 'whsec_other_restaurant']);
+
+        StripeEvents::send(StripeEvents::succeeded($order), secret: 'whsec_other_restaurant')->assertStatus(400);
+
+        expect($order->refresh()->status)->toBe(OrderStatus::PendingPayment);
+    });
+
+    it('never lets one restaurant’s events touch another’s orders', function () {
+        $order = unpaidOrder($this->menu);
+        $other = MomoMenu::create();
+        $other->restaurant->update(['stripe_webhook_secret' => 'whsec_other_restaurant']);
+
+        // Correctly signed for the other restaurant's endpoint, naming this one's order.
+        StripeEvents::send(StripeEvents::succeeded($order), secret: 'whsec_other_restaurant', restaurant: $other->restaurant->slug)
+            ->assertOk();
+
+        expect($order->refresh()->status)->toBe(OrderStatus::PendingPayment)
+            ->and($order->payment_status)->toBe(PaymentStatus::Unpaid)
+            ->and(StripeEvent::query()->sole()->restaurant_id)->toBe($other->restaurant->id);
+    });
+
+    it('processes an event for each restaurant sharing a Stripe account', function () {
+        Mail::fake();
+        $order = unpaidOrder($this->menu);
+        $other = MomoMenu::create();
+        $event = StripeEvents::succeeded($order, 'evt_shared_account');
+
+        // Both endpoints are on the same Stripe account, so both get the event.
+        StripeEvents::send($event, restaurant: $other->restaurant->slug)->assertOk();
+        StripeEvents::send($event)->assertOk()->assertJsonMissingPath('duplicate');
+
+        expect($order->refresh()->status)->toBe(OrderStatus::Placed)
+            ->and(StripeEvent::query()->count())->toBe(2);
+    });
+
+    it('turns away an endpoint for a restaurant that doesn’t exist or has no signing secret', function () {
+        $order = unpaidOrder($this->menu);
+
+        StripeEvents::send(StripeEvents::succeeded($order), restaurant: 'no-such-restaurant')->assertNotFound();
+
+        $this->menu->restaurant->update(['stripe_webhook_secret' => null]);
+
+        StripeEvents::send(StripeEvents::succeeded($order))
+            ->assertStatus(400)
+            ->assertJsonPath('message', 'The webhook signing secret isn’t configured.');
+    });
+
+    it('no longer answers at the old shared address', function () {
+        $order = unpaidOrder($this->menu);
+
+        $this->postJson('/api/v1/stripe/webhook', StripeEvents::succeeded($order))->assertNotFound();
+    });
 });

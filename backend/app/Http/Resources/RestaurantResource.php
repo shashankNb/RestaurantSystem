@@ -58,6 +58,11 @@ class RestaurantResource extends JsonResource
                     'enabled' => $this->delivery_enabled && $this->deliveryZones->isNotEmpty(),
                     'zones' => DeliveryZoneResource::collection($this->deliveryZones),
                 ],
+                'dine_in' => [
+                    'enabled' => $this->offersDineIn(),
+                    // Labels customers choose from, in the restaurant's order.
+                    'tables' => $this->offersDineIn() ? $this->activeDiningTables->pluck('label')->values()->all() : [],
+                ],
             ],
             'opening_hours' => OpeningHourResource::collection(
                 // Monday first, then each day's shifts in time order.
@@ -66,6 +71,12 @@ class RestaurantResource extends JsonResource
                     ->values(),
             ),
             'special_hours' => SpecialHourResource::collection($this->specialHours->sortBy('date')->values()),
+            'payments' => [
+                // The restaurant's own Stripe account, for the apps' payment forms. Only the
+                // publishable key, and only once all its keys are in (until then the apps say
+                // payments aren't set up, and checkout refuses).
+                'stripe_publishable_key' => $this->acceptsPayments() ? $this->stripe_publishable_key : null,
+            ],
         ];
     }
 }

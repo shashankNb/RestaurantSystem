@@ -7,12 +7,13 @@ use App\Models\Order;
 use App\Models\StripeEvent;
 use App\Services\OrderService;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Acts on a verified, stored Stripe event. Each event is stored once (its ID is unique),
- * and processed once: a replay finds it already processed and stops. The webhook runs it
+ * Acts on a verified, stored Stripe event. Each event is stored once per restaurant (its ID
+ * is unique there), and processed once: a replay finds it already processed and stops. The webhook runs it
  * straight away, and queues it only to retry after a failure.
  */
 class ProcessStripeEvent implements ShouldQueue
@@ -38,7 +39,7 @@ class ProcessStripeEvent implements ShouldQueue
 
         /** @var array{id?: string, amount_received?: int, metadata?: array{order_public_id?: string}} $intent */
         $intent = $event->payload['data']['object'] ?? [];
-        $order = $this->orderFor($intent);
+        $order = $this->orderFor($event, $intent);
 
         if ($order === null) {
             Log::warning('Stripe event for an unknown order.', ['event' => $event->stripe_event_id, 'type' => $event->type]);
@@ -55,10 +56,18 @@ class ProcessStripeEvent implements ShouldQueue
     /**
      * @param  array{id?: string, metadata?: array{order_public_id?: string}}  $intent
      */
-    private function orderFor(array $intent): ?Order
+    private function orderFor(StripeEvent $event, array $intent): ?Order
     {
+        // Only the orders of the restaurant whose endpoint received the event: the event was
+        // verified with that restaurant's own signing secret, which its owner entered. (Events
+        // from before endpoints were per restaurant came from the platform's one account.)
+        $orders = fn () => Order::query()->when(
+            $event->restaurant_id !== null,
+            fn (Builder $query) => $query->where('restaurant_id', $event->restaurant_id),
+        );
+
         if (isset($intent['id'])) {
-            $order = Order::query()->where('stripe_payment_intent_id', $intent['id'])->first();
+            $order = $orders()->where('stripe_payment_intent_id', $intent['id'])->first();
 
             if ($order !== null) {
                 return $order;
@@ -67,6 +76,6 @@ class ProcessStripeEvent implements ShouldQueue
 
         $publicId = $intent['metadata']['order_public_id'] ?? null;
 
-        return $publicId === null ? null : Order::query()->where('public_id', $publicId)->first();
+        return $publicId === null ? null : $orders()->where('public_id', $publicId)->first();
     }
 }

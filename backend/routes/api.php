@@ -51,8 +51,9 @@ Route::post('push-tokens', [PushTokenController::class, 'store'])
     ->middleware('throttle:push-tokens')
     ->name('push-tokens.store');
 
-// Stripe (signature verified; each event processed once).
-Route::post('stripe/webhook', StripeWebhookController::class)->name('stripe.webhook');
+// Stripe: each restaurant's own account sends its events here (signature verified with
+// that restaurant's signing secret; each event processed once).
+Route::post('stripe/webhook/{restaurant:slug}', StripeWebhookController::class)->name('stripe.webhook');
 
 // Accounts
 Route::prefix('auth')->name('auth.')->group(function (): void {

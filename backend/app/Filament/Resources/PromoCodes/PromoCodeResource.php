@@ -31,7 +31,7 @@ class PromoCodeResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'Restaurant';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = 5;
 
     protected static ?string $navigationLabel = 'Promo codes';
 

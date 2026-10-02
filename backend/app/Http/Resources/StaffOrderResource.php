@@ -29,6 +29,8 @@ class StaffOrderResource extends JsonResource
             'status' => $this->status->value,
             'payment_status' => $this->payment_status->value,
             'fulfilment_type' => $this->fulfilment_type->value,
+            // Dine in: the table to bring it to.
+            'table' => $this->table_label,
             'scheduled_for' => $this->scheduled_for?->toIso8601ZuluString(),
             'placed_at' => $this->placed_at?->toIso8601ZuluString(),
             // A new order is rejected (and refunded) automatically if nobody accepts it by then.

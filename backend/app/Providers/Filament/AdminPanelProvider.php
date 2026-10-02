@@ -6,6 +6,7 @@ use App\Filament\Pages\Tenancy\EditRestaurantSettings;
 use App\Filament\Support\BrandPalette;
 use App\Http\Middleware\ApplyRestaurantPreferences;
 use App\Models\Restaurant;
+use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -36,6 +37,10 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            // "Forgot password?", and the link a new owner gets to choose theirs (restaurant:create).
+            ->passwordReset()
+            // Inside a restaurant, its own name; on the sign-in pages, the platform's (APP_NAME).
+            ->brandName(fn (): ?string => Filament::getTenant()?->getAttribute('name'))
             ->colors([
                 'primary' => BrandPalette::fromHex('#7A1F2B'),
             ])
