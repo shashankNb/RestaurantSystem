@@ -99,9 +99,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "@stripe/stripe-react-native",
       {
         // Both merchant IDs go in the app's Apple Pay entitlement.
-        merchantIdentifier: [brand.appleMerchantId, brand.squareAppleMerchantId].filter(
-          (id): id is string => Boolean(id),
-        ),
+        merchantIdentifier: [
+          brand.appleMerchantId,
+          brand.squareAppleMerchantId,
+        ].filter((id): id is string => Boolean(id)),
         enableGooglePay: true,
       },
     ],
@@ -109,7 +110,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // Square. Its "Pay" button in the brand colour on Android.
     [
       "react-native-square-in-app-payments",
-      { cardEntryStyle: { saveButtonStyle: { backgroundColor: brand.brandColor } } },
+      {
+        cardEntryStyle: {
+          saveButtonStyle: { backgroundColor: brand.brandColor },
+        },
+      },
     ],
     // The Kotlin that Square's plugin pins, for Expo's modules too.
     ["./plugins/with-kotlin-version", { version: "2.2.21" }],
