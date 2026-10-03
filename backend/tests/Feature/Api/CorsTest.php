@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\Restaurant;
+use App\Support\RestaurantOrigins;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     config(['cors.configured_origins' => ['http://localhost:8081']]);
@@ -20,6 +22,16 @@ it('lets each restaurant’s own website call the API, and the configured origin
     'over plain http' => ['http://order.kathmandu.test', false],
     'anyone else' => ['https://elsewhere.test', false],
 ]);
+
+it('matches a domain saved with capitals, as browsers send it in lower case', function () {
+    // Saved before domains were cleaned up on the way in.
+    DB::table('restaurants')->where('id', $this->restaurant->id)->update(['custom_domain' => 'Order.Kathmandu.test']);
+    RestaurantOrigins::forget();
+
+    $this->getJson($this->url, ['Origin' => 'https://order.kathmandu.test'])
+        ->assertOk()
+        ->assertHeader('Access-Control-Allow-Origin', 'https://order.kathmandu.test');
+});
 
 it('follows a restaurant moving to another domain', function () {
     $this->getJson($this->url, ['Origin' => 'https://order.kathmandu.test'])->assertHeader('Access-Control-Allow-Origin', 'https://order.kathmandu.test');

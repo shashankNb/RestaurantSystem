@@ -6,6 +6,7 @@ use App\Models\Restaurant;
 use App\Payments\PaymentGateway;
 use App\Payments\PaymentsUnavailable;
 use App\Payments\WalletSetup;
+use App\Rules\WebsiteDomain;
 use Closure;
 use DateTimeZone;
 use Filament\Actions\Action;
@@ -177,10 +178,11 @@ class EditRestaurantSettings extends EditTenantProfile
                         ->required()
                         ->searchable(),
                     TextInput::make('custom_domain')
-                        ->helperText('Your own web address for the ordering site, e.g. order.example.com.au. Table QR codes and links in emails use it.')
+                        ->helperText('The address your ordering website is live at, e.g. order.example.com.au. Table QR codes, links in emails, and Apple Pay and Google Pay use it, so enter it once the site is live there.')
                         ->maxLength(255)
-                        ->regex('/^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i')
-                        ->unique(ignoreRecord: true)
+                        ->rules([fn (): WebsiteDomain => new WebsiteDomain($this->restaurant())])
+                        // Saved as the bare, lower-case domain, however it was typed or pasted.
+                        ->dehydrateStateUsing(fn (?string $state): ?string => WebsiteDomain::normalize($state))
                         ->columnSpanFull(),
                 ]),
 

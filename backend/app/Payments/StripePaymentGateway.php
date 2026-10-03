@@ -126,7 +126,10 @@ final class StripePaymentGateway implements PaymentGateway
         return null;
     }
 
-    /** The website's domain, registered for wallets: found, switched back on, or added. */
+    /**
+     * The website's domain, registered for wallets: added, or found (and switched back on, or
+     * checked again if it wasn't ready).
+     */
     private static function registeredDomain(StripeClient $stripe, string $domain): PaymentMethodDomain
     {
         $existing = $stripe->paymentMethodDomains->all(['domain_name' => $domain, 'limit' => 1])->data[0] ?? null;
@@ -136,7 +139,12 @@ final class StripePaymentGateway implements PaymentGateway
         }
 
         if (! $existing->enabled) {
-            return $stripe->paymentMethodDomains->update($existing->id, ['enabled' => true]);
+            $existing = $stripe->paymentMethodDomains->update($existing->id, ['enabled' => true]);
+        }
+
+        // Registered before the site or its DNS was ready, say: Stripe checks it again.
+        if ($existing->apple_pay->status !== 'active' || $existing->google_pay->status !== 'active') {
+            return $stripe->paymentMethodDomains->validate($existing->id);
         }
 
         return $existing;

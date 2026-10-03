@@ -6,6 +6,7 @@ use App\Enums\RestaurantRole;
 use App\Mail\OwnerInvitation;
 use App\Models\Restaurant;
 use App\Models\User;
+use App\Rules\WebsiteDomain;
 use DateTimeZone;
 use Filament\Facades\Filament;
 use Illuminate\Console\Command;
@@ -33,6 +34,7 @@ class CreateRestaurant extends Command
         {--phone= : Its phone number, shown to customers}
         {--email= : Its email, where customers’ replies to receipts go}
         {--brand-color= : Its brand colour, e.g. #7A1F2B (the same as in its app’s brand.json)}
+        {--domain= : Its website’s domain, e.g. order.kathmandukitchen.com.au (the owner can add it later)}
         {--owner-email= : The owner’s email, to sign in to the back office}
         {--owner-name= : The owner’s name, for a new account}
         {--no-invite : Print the owner’s link instead of emailing it}';
@@ -60,6 +62,11 @@ class CreateRestaurant extends Command
             required: true,
             hint: 'A hex colour like #7A1F2B, for buttons and the top of the menu. The same as in the app’s brand.json.',
         ), self::DEFAULT_BRAND_COLOR);
+        $domain = $this->answer('domain', fn (): string => text(
+            'Website domain (optional)',
+            placeholder: 'order.kathmandukitchen.com.au',
+            hint: 'Where its ordering website will be. The same as the webUrl in its app’s brand.json. The owner can add it later.',
+        ), '');
         $ownerEmail = $this->answer('owner-email', fn (): string => text('Owner’s email', required: true, hint: 'They sign in to the back office with it.'));
         $owner = User::query()->where('email', $ownerEmail)->first();
         $ownerName = $owner->name ?? $this->answer('owner-name', fn (): string => text('Owner’s name', required: true));
@@ -71,6 +78,7 @@ class CreateRestaurant extends Command
             'phone' => $phone,
             'email' => $email,
             'brand_color' => $brandColor,
+            'domain' => $domain,
             'owner_email' => $ownerEmail,
             'owner_name' => $ownerName,
         ], [
@@ -80,6 +88,7 @@ class CreateRestaurant extends Command
             'phone' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:255'],
             'brand_color' => ['required', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'domain' => ['nullable', 'string', 'max:255', new WebsiteDomain],
             'owner_email' => ['required', 'email', 'max:255'],
             'owner_name' => ['required', 'string', 'max:255'],
         ], [
@@ -96,7 +105,7 @@ class CreateRestaurant extends Command
             return self::FAILURE;
         }
 
-        [$restaurant, $owner, $newAccount] = DB::transaction(function () use ($name, $slug, $timezone, $phone, $email, $brandColor, $ownerEmail, $ownerName): array {
+        [$restaurant, $owner, $newAccount] = DB::transaction(function () use ($name, $slug, $timezone, $phone, $email, $brandColor, $domain, $ownerEmail, $ownerName): array {
             $restaurant = Restaurant::query()->create([
                 'name' => $name,
                 'slug' => $slug,
@@ -105,6 +114,7 @@ class CreateRestaurant extends Command
                 'phone' => $phone !== '' ? $phone : null,
                 'email' => $email !== '' ? $email : null,
                 'brand_color' => strtoupper($brandColor),
+                'custom_domain' => WebsiteDomain::normalize($domain),
                 // Pickup to start with. Delivery needs its zones and dine in its tables first;
                 // without opening hours it shows as closed, and without Stripe keys nobody
                 // can check out.
@@ -143,7 +153,9 @@ class CreateRestaurant extends Command
         $this->line('  Next, from docs/ADDING_A_RESTAURANT.md:');
         $this->line('  1. The owner fills in the address, opening hours, menu and Stripe keys in the back office.');
         $this->line("  2. Add the app's brand folder, app/brands/{$restaurant->slug}/, and build its app and website.");
-        $this->line('  3. Enter the website’s domain in the restaurant’s settings, then place a test order.');
+        $this->line($restaurant->custom_domain !== null
+            ? "  3. Deploy its website to https://{$restaurant->custom_domain}, then place a test order."
+            : '  3. Once its website is live, the owner enters its domain in the restaurant’s settings. Then place a test order.');
 
         return self::SUCCESS;
     }

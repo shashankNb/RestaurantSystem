@@ -31,6 +31,8 @@ It asks for:
 - the restaurant's name;
 - its link name (for example `kathmandu-kitchen`, which can't be changed later);
 - timezone, phone, email and brand colour;
+- its website's domain, if you know it already (for example `order.kathmandukitchen.com.au`;
+  see step 6). Otherwise the owner adds it later;
 - the owner's name and email.
 
 Every answer can also be given as an option; `--help` lists them.
@@ -166,7 +168,16 @@ the websites.
    Each app needs its own store listing: screenshots, description, privacy policy, and a
    support contact.
 
-## 6. The website
+## 6. The website and its domain
+
+The website's address is set in two places, and they must match:
+
+| Where | What uses it |
+|---|---|
+| `webUrl` in the brand's `brand.json` (step 4) | The website itself: its canonical links, link previews, `sitemap.xml` and `robots.txt` |
+| The restaurant's domain (step 1's question, or the owner's **Restaurant settings → Details**) | The API: it accepts requests from that website, and table QR codes, links in emails, and Apple Pay and Google Pay use it |
+
+Until the restaurant has a domain, the API uses `ORDERING_WEB_URL` from `backend/.env` instead.
 
 From `app/`:
 
@@ -176,13 +187,23 @@ BRAND=kathmandu-kitchen eas deploy --environment production          # a preview
 BRAND=kathmandu-kitchen eas deploy --environment production --prod   # the live site
 ```
 
-1. Add the domain in the EAS dashboard (Hosting → Custom domain) and create the DNS records it
-   lists.
-2. In the back office, enter the domain in **Restaurant settings → Details**. The API then
-   accepts requests from the website, and the restaurant's table QR codes and email links point
-   to it. Print the table QR codes now.
-3. Saving the domain also registers it with the restaurant's Stripe account for Apple Pay and
-   Google Pay (step 3). Check that the checklist in Payments says it's ready.
+1. Give the site its domain in the EAS dashboard (the project → Hosting → Custom domain). It
+   lists the DNS records to create with whoever hosts the domain's DNS:
+   - a TXT record that proves you own the domain;
+   - a CNAME for its HTTPS certificate (`_acme-challenge.<domain>`), which EAS renews;
+   - a CNAME to `origin.expo.app` for a subdomain such as `order.kathmandukitchen.com.au`, or
+     an A record for a bare domain such as `kathmandukitchen.com.au`.
+
+   Custom domains are a paid EAS feature, one per project. On the free plan the site stays at
+   `https://<name>.expo.app`, which works as the restaurant's domain in exactly the same way.
+   `www.kathmandukitchen.com.au` and `kathmandukitchen.com.au` count as different domains, so
+   use one.
+2. If the domain wasn't given in step 1, the owner enters it in **Restaurant settings →
+   Details**. Pasting the site's whole address is fine: it's saved as the bare domain. Print the
+   table QR codes now.
+3. Once the restaurant has both its Stripe keys and its domain, the domain is registered with
+   its Stripe account for Apple Pay and Google Pay (step 3). Check that the checklist in
+   Payments says it's ready. If it isn't, **Check with Stripe** asks Stripe to check it again.
 4. Submit `https://<domain>/sitemap.xml` in Google Search Console.
 
 ## 7. Place a test order

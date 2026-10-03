@@ -933,3 +933,19 @@ hours) and the account endpoints.
     isn't held locked while it answers. If it doesn't answer, the owner is told and the last
     answer stays. A new secret key forgets the last answer, which may have been about another
     Stripe account.
+
+### A restaurant's website domain
+
+242. **A domain is saved as the bare, lower-case domain**, however it's typed or pasted
+    (`https://Order.Example.com.au/menu` becomes `order.example.com.au`). Browsers send the
+    website's address in lower case and the API's CORS check compares it exactly, so a domain
+    saved with capitals would stop the website from reaching the API. Domains saved before this
+    are lowercased where the CORS list is built. The same rule checks the back office and
+    `restaurant:create`, and refuses another restaurant's domain however it's written.
+243. **`restaurant:create` takes the website's domain** (`--domain`, or an optional question).
+    Only a restaurant's owners can open its back office, so this is how the operator, who
+    deploys the website, can give it its domain. The owner can still add or change it in
+    Restaurant settings.
+244. **Check with Stripe asks Stripe to check a registered domain again** when Apple Pay or
+    Google Pay isn't active on it yet: for example, when it was registered before the website or
+    its DNS was ready. A domain that's active is left alone.

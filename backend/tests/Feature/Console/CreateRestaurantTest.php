@@ -75,8 +75,24 @@ it('prints the owner’s link instead of emailing it', function () {
     Mail::assertNothingSent();
 });
 
+it('takes the website’s domain, however it’s written', function () {
+    createRestaurant(['--domain' => ' https://Order.KathmanduKitchen.com.au/ '])
+        ->expectsOutputToContain('Deploy its website to https://order.kathmandukitchen.com.au, then place a test order.')
+        ->assertSuccessful();
+
+    expect(Restaurant::query()->where('slug', 'kathmandu-kitchen')->sole()->custom_domain)->toBe('order.kathmandukitchen.com.au');
+});
+
+it('leaves the domain for later when it isn’t given', function () {
+    createRestaurant([])
+        ->expectsOutputToContain('Once its website is live, the owner enters its domain in the restaurant’s settings.')
+        ->assertSuccessful();
+
+    expect(Restaurant::query()->where('slug', 'kathmandu-kitchen')->sole()->custom_domain)->toBeNull();
+});
+
 it('refuses a link name another restaurant has, or details that won’t work', function (array $options, string $error) {
-    Restaurant::factory()->create(['slug' => 'kathmandu-kitchen']);
+    Restaurant::factory()->create(['slug' => 'kathmandu-kitchen', 'custom_domain' => 'order.kathmandu.com.au']);
 
     createRestaurant($options)->expectsOutputToContain($error)->assertFailed();
 
@@ -89,4 +105,6 @@ it('refuses a link name another restaurant has, or details that won’t work', f
     'not an email' => [['--slug' => 'kathmandu-2', '--owner-email' => 'asha'], 'The owner email field must be a valid email address.'],
     'no owner' => [['--slug' => 'kathmandu-2', '--owner-email' => null], 'The owner email field is required.'],
     'not a colour' => [['--slug' => 'kathmandu-2', '--brand-color' => 'blue'], 'The brand colour is a hex colour like #7A1F2B.'],
+    'not a domain' => [['--slug' => 'kathmandu-2', '--domain' => 'kathmandu kitchen'], 'Enter just the website’s domain, like order.example.com.au.'],
+    'domain taken' => [['--slug' => 'kathmandu-2', '--domain' => 'https://Order.Kathmandu.com.au/'], 'Another restaurant already uses this domain.'],
 ]);

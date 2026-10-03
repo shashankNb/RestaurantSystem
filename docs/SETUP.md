@@ -480,8 +480,11 @@ checklist. EAS Hosting runs the site's server rendering, the page loaders and th
    BRAND=<brand> eas deploy --environment production --prod   # then production
    ```
 4. Add the domain in the EAS dashboard (Hosting, Custom domain) and create the DNS records it
-   lists. Then enter it in the restaurant's settings in the back office: the API then accepts
-   requests from it (CORS), and its table QR codes and emails link to it.
+   lists. Custom domains are a paid EAS feature, one per project; on the free plan, the site's
+   `https://<name>.expo.app` address works the same way. Then give the restaurant the same
+   domain as its `brand.json` `webUrl`, in its settings in the back office (or with
+   `restaurant:create --domain`): the API then accepts requests from it (CORS), and its table QR
+   codes and emails link to it.
 5. Saving the domain also registers it with the restaurant's Stripe account, so Apple Pay and
    Google Pay appear on the website. Payments' checklist says when it's ready.
 6. Submit `https://<domain>/sitemap.xml` in Google Search Console.

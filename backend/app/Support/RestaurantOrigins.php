@@ -23,7 +23,8 @@ final class RestaurantOrigins
             ->whereNotNull('custom_domain')
             ->where('custom_domain', '!=', '')
             ->pluck('custom_domain')
-            ->map(fn (string $domain): string => "https://{$domain}")
+            // Browsers send the host in lower case, and CORS compares it exactly.
+            ->map(fn (string $domain): string => 'https://'.strtolower($domain))
             ->values()
             ->all());
     }
