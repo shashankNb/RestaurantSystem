@@ -191,48 +191,35 @@ Developer Tools"). It comes from Stripe, not the app.
 
 ### Square (sandbox)
 
-A restaurant can take payments with its own Square account instead of Stripe. Its owner
-connects the account in the back office (Restaurant settings → Payments → Square) and switches
-between the two there; each order stays with the processor it was paid with, refunds included.
-For that, the platform has its own Square application, set up once:
+A restaurant can take payments with its own Square account instead of Stripe. Like Stripe's
+keys, its owner enters its own Square application's credentials in the back office
+(Restaurant settings → Payments → Square), and switches between the two there; each order
+stays with the processor it was paid with, refunds included. Nothing about Square goes in
+`.env`. To try it with the demo restaurant:
 
-1. At [developer.squareup.com/apps](https://developer.squareup.com/apps), create an application.
-   Its **Credentials** page has an application ID and secret for the sandbox and for production.
-   Put the sandbox ones in `backend/.env`:
-   ```dotenv
-   SQUARE_SANDBOX_APPLICATION_ID=sandbox-sq0idb-…
-   SQUARE_SANDBOX_APPLICATION_SECRET=sandbox-sq0csb-…
-   ```
-2. On its **OAuth** page, in the sandbox, set the redirect URL to
-   `http://localhost/square/oauth/callback`. (Production needs HTTPS:
-   `https://<API host>/square/oauth/callback`.)
-3. On its **Webhooks** page, in the sandbox, add a subscription:
-   - URL `<APP_URL>/api/v1/square/webhook/sandbox` (exactly, as Square signs with it);
-   - events `payment.created`, `payment.updated`, `refund.updated` and
-     `oauth.authorization.revoked`;
-   - put its signature key in `SQUARE_SANDBOX_WEBHOOK_SIGNATURE_KEY`.
-
-   Square can't reach `localhost`, so locally these events don't arrive. Payments still work:
-   Square's are confirmed while the customer waits. The webhook only catches a payment whose
-   answer was lost, a refund that failed, or an account disconnected on Square's side.
-4. In the Developer Console, under **Sandbox test accounts**, open the default test account's
-   Square Dashboard. Square only connects a sandbox account while its dashboard is open in the
-   same browser.
-5. In the back office: Restaurant settings → Payments → Square → **Connect a sandbox account
-   (test)**, and approve on Square's page. If Stripe isn't set up, customers pay with Square
-   straight away; otherwise press **Switch to Square** under Payments.
-6. Pay with Square's test card `4111 1111 1111 1111`, CVV `111`, any future expiry date.
+1. At [developer.squareup.com/apps](https://developer.squareup.com/apps), create an application
+   (or use one you have). On its **Credentials** page, choose **Sandbox** and copy the
+   **application ID** (`sandbox-sq0idb-…`) and the **access token** (`EAAA…`). (The application
+   *secret* isn't needed.)
+2. In the back office, Restaurant settings → Payments → **Square**: paste them and save. The
+   back office checks them with Square, loads the account's name and locations, and chooses the
+   location if there's only one taking Australian dollars (otherwise choose it, and save). If
+   Stripe isn't set up, customers pay with Square straight away; otherwise press **Switch to
+   Square** under Payments.
+3. Optional, for webhooks: on the application's **Webhooks** page, in the sandbox, add a
+   subscription with the **Webhook URL** shown under Square (`<APP_URL>/api/v1/square/webhook/<link-name>`)
+   and the events `payment.created`, `payment.updated` and `refund.updated`, then paste its
+   signature key under Square. Square can't reach `localhost`, so locally these events don't
+   arrive; payments still work, because Square's are confirmed while the customer waits. The
+   webhook only catches a payment whose answer was lost, or a refund that failed.
+4. Pay with Square's test card `4111 1111 1111 1111`, CVV `111`, any future expiry date.
    `4000 0000 0000 0002` is declined, and `4310 0000 0020 1019` asks for a bank check (enter
    `123456`).
 
-For live payments, fill in `SQUARE_APPLICATION_ID`, `SQUARE_APPLICATION_SECRET` and
-`SQUARE_WEBHOOK_SIGNATURE_KEY` from the production credentials, with the production redirect URL
-and a webhook subscription to `<APP_URL>/api/v1/square/webhook/production`. The back office then
-offers **Connect Square** too. A restaurant is connected in one environment at a time.
-
-The scheduler renews each restaurant's Square access token when it's a week old
-(`square:refresh-tokens`, daily). Tests never call Square: they use a fake, and
-`HttpSquareGateway` is tested against faked responses.
+Production credentials (`sq0idp-…` and the production access token) take real payments; the
+application ID says which environment the restaurant is in. Square's personal access tokens
+don't expire; if one is replaced in Square's console, enter the new one. Tests never call
+Square: they use a fake, and `HttpSquareGateway` is tested against faked responses.
 
 ### Troubleshooting
 
@@ -397,19 +384,21 @@ PaymentSheet takes cards with the publishable key alone. For the wallets:
   restaurant's Stripe account: **Turn on Apple Pay and Google Pay** in the back office's
   Payments does that.
 
-With Square, the apps use Square's In-App Payments SDK (`react-native-square-in-app-payments`):
-Square's own card form, which checks the card with the bank when needed, and Square's Apple Pay
-and Google Pay.
+With Square, the apps use Square's In-App Payments SDK (`react-native-square-in-app-payments`),
+started with the restaurant's own Square application ID: Square's own card form, which checks
+the card with the bank when needed, and Square's Apple Pay and Google Pay.
 
-- **Apple Pay with Square** needs its own Apple Merchant ID, because a merchant ID can only have
-  one active payment processing certificate and the Stripe one is taken. One ID serves every
-  brand (for example `merchant.au.com.yourplatform.square`): put it in each `brand.json` as
-  `squareAppleMerchantId`. In the Square Developer Console, open your application's Apple Pay
-  page (In-App Payments SDK), download its certificate signing request, create the Apple Pay
-  payment processing certificate for that merchant ID with it in Apple Developer, and upload the
-  certificate back to Square.
-- **Google Pay with Square** uses Google's test environment in the sandbox and the real one in
-  production. Before going live, follow Square's Google Pay guide for Google's production access.
+- **Apple Pay with Square** needs a second Apple Merchant ID for the app, because a merchant ID
+  can only have one active payment processing certificate and the Stripe one is taken (for
+  example `merchant.au.com.examplerestaurant.ordering.square`). Put it in the brand's
+  `brand.json` as `squareAppleMerchantId`. In the Square Developer Console, open the
+  restaurant's Square application's Apple Pay page (In-App Payments SDK), download its
+  certificate signing request, create the Apple Pay payment processing certificate for that
+  merchant ID with it in Apple Developer, and upload the certificate back to the restaurant's
+  Square application.
+- **Google Pay with Square** uses Google's test environment with sandbox credentials and the
+  real one with production credentials. Before going live, follow Square's Google Pay guide for
+  Google's production access.
 - Square's Android SDK needs Kotlin 2.2.21: its config plugin and `plugins/with-kotlin-version.js`
   set it for the whole build.
 

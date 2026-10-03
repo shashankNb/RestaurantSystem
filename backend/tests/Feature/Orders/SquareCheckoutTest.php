@@ -17,7 +17,7 @@ use Tests\Support\MomoMenu;
 
 beforeEach(function () {
     $this->menu = MomoMenu::create();
-    connectSquare($this->menu->restaurant);
+    setUpSquare($this->menu->restaurant);
     /** @var FakeSquareGateway $square */
     $square = app(SquareGateway::class);
     $this->square = $square;
@@ -189,7 +189,7 @@ it('keeps a Stripe order with Stripe after switching to Square', function () {
     $this->menu->restaurant->forceFill(['payment_processor' => PaymentProcessor::Stripe])->save();
     squareCheckout($this->menu)->assertCreated();
     $order = Order::query()->sole();
-    connectSquare($this->menu->restaurant);
+    setUpSquare($this->menu->restaurant);
 
     // Stripe's webhook confirms the payment after the switch.
     app(OrderService::class)->markPaid($order, (string) $order->stripe_payment_intent_id, $order->total_cents);

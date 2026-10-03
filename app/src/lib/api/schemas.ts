@@ -69,7 +69,7 @@ export const restaurantSchema = z.object({
   special_hours: z.array(specialHourSchema),
   /**
    * How customers pay: with the restaurant's own Stripe account (its publishable key) or its
-   * own Square account (the platform's Square application and its location), once set up.
+   * own Square account (its Square application and location), once set up.
    */
   payments: z
     .object({

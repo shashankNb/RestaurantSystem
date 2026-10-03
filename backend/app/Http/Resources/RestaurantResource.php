@@ -81,11 +81,11 @@ class RestaurantResource extends JsonResource
                 'stripe_publishable_key' => $this->payment_processor === PaymentProcessor::Stripe && $this->acceptsPayments()
                     ? $this->stripe_publishable_key
                     : null,
-                // Its own Square account: the platform's Square application, and its location.
+                // Its own Square account: its application (public) and the location payments go to.
                 'square' => $this->payment_processor === PaymentProcessor::Square && $this->acceptsPayments() ? [
-                    'application_id' => $this->squareApp()?->applicationId,
+                    'application_id' => $this->square_application_id,
                     'location_id' => $this->square_location_id,
-                    'environment' => $this->square_environment?->value,
+                    'environment' => $this->squareEnvironment()?->value,
                 ] : null,
             ],
         ];

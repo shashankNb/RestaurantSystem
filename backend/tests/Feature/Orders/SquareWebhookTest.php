@@ -1,11 +1,10 @@
 <?php
 
 use App\Enums\OrderStatus;
-use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
-use App\Enums\SquareEnvironment;
 use App\Http\Controllers\Api\SquareWebhookController;
 use App\Models\Order;
+use App\Models\Restaurant;
 use App\Models\SquareEvent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
@@ -15,30 +14,30 @@ use Tests\Support\MomoMenu;
 
 beforeEach(function () {
     $this->menu = MomoMenu::create();
-    connectSquare($this->menu->restaurant);
+    setUpSquare($this->menu->restaurant);
     $this->order = Order::factory()->for($this->menu->restaurant)->square()->create();
 
     // Monday 5 October 2026, 6 pm in Melbourne: open until 10 pm.
     $this->travelTo(CarbonImmutable::parse('2026-10-05 18:00', 'Australia/Melbourne'));
 });
 
-/** Sends an event as Square does: signed with the sandbox subscription's key and URL. */
-function squareEvent(array $event, ?string $signature = null): TestResponse
+/** Sends an event as the restaurant's Square application does: signed with its key and URL. */
+function squareEvent(Restaurant $restaurant, array $event, ?string $signature = null): TestResponse
 {
     $body = json_encode($event, JSON_THROW_ON_ERROR);
-    $url = SquareWebhookController::notificationUrl(SquareEnvironment::Sandbox);
+    $url = SquareWebhookController::notificationUrl($restaurant);
     $signature ??= base64_encode(hash_hmac('sha256', $url.$body, 'test-square-signature-key', true));
 
-    return test()->call('POST', '/api/v1/square/webhook/sandbox', server: [
+    return test()->call('POST', "/api/v1/square/webhook/{$restaurant->slug}", server: [
         'HTTP_X_SQUARE_HMACSHA256_SIGNATURE' => $signature,
         'CONTENT_TYPE' => 'application/json',
     ], content: $body);
 }
 
-function squarePaymentEvent(Order $order, array $payment = [], string $merchantId = 'MSQUARE123'): array
+function squarePaymentEvent(Order $order, array $payment = []): array
 {
     return [
-        'merchant_id' => $merchantId,
+        'merchant_id' => 'MSQUARE123',
         'type' => 'payment.updated',
         'event_id' => (string) Str::uuid(),
         'created_at' => now()->toIso8601ZuluString(),
@@ -54,7 +53,7 @@ function squarePaymentEvent(Order $order, array $payment = [], string $merchantI
 }
 
 it('places an order whose payment Square finished after the customer left', function () {
-    squareEvent(squarePaymentEvent($this->order))->assertOk()->assertJson(['received' => true]);
+    squareEvent($this->menu->restaurant, squarePaymentEvent($this->order))->assertOk()->assertJson(['received' => true]);
 
     $order = $this->order->refresh();
 
@@ -67,51 +66,48 @@ it('places an order whose payment Square finished after the customer left', func
 it('acts on each event once', function () {
     $event = squarePaymentEvent($this->order);
 
-    squareEvent($event)->assertOk();
-    squareEvent($event)->assertOk()->assertJson(['duplicate' => true]);
+    squareEvent($this->menu->restaurant, $event)->assertOk();
+    squareEvent($this->menu->restaurant, $event)->assertOk()->assertJson(['duplicate' => true]);
 
     expect(SquareEvent::query()->count())->toBe(1)
         ->and($this->order->statusEvents()->where('to_status', OrderStatus::Placed)->count())->toBe(1);
 });
 
-it('refuses an event Square didn’t sign', function () {
-    squareEvent(squarePaymentEvent($this->order), signature: base64_encode('forged'))->assertBadRequest();
+it('refuses an event the restaurant’s Square application didn’t sign', function () {
+    squareEvent($this->menu->restaurant, squarePaymentEvent($this->order), signature: base64_encode('forged'))->assertBadRequest();
+
+    // Without a signature key, nothing is accepted.
+    $this->menu->restaurant->forceFill(['square_webhook_signature_key' => null])->save();
+    squareEvent($this->menu->restaurant, squarePaymentEvent($this->order))->assertBadRequest();
 
     expect($this->order->refresh()->status)->toBe(OrderStatus::PendingPayment)
         ->and(SquareEvent::query()->count())->toBe(0);
 });
 
-it('ignores the restaurant’s other Square payments, and other Square accounts', function (array $payment, string $merchantId) {
-    squareEvent(squarePaymentEvent($this->order, $payment, $merchantId))->assertOk();
+it('only touches the orders of the restaurant whose webhook it is', function () {
+    $other = setUpSquare(MomoMenu::create()->restaurant);
+
+    squareEvent($other, squarePaymentEvent($this->order))->assertOk();
+
+    expect($this->order->refresh()->status)->toBe(OrderStatus::PendingPayment)
+        ->and(SquareEvent::query()->count())->toBe(0);
+});
+
+it('ignores the restaurant’s other Square payments', function (array $payment) {
+    squareEvent($this->menu->restaurant, squarePaymentEvent($this->order, $payment))->assertOk();
 
     expect($this->order->refresh()->status)->toBe(OrderStatus::PendingPayment)
         ->and(SquareEvent::query()->count())->toBe(0);
 })->with([
-    'an in-person sale' => [['id' => 'sqpay_counter', 'reference_id' => null], 'MSQUARE123'],
-    'not finished' => [['status' => 'APPROVED'], 'MSQUARE123'],
-    'another account' => [[], 'MSOMEONEELSE'],
+    'an in-person sale' => [['id' => 'sqpay_counter', 'reference_id' => null]],
+    'not finished' => [['status' => 'APPROVED']],
 ]);
-
-it('forgets a Square account disconnected on Square’s side, and goes back to Stripe', function () {
-    squareEvent([
-        'merchant_id' => 'MSQUARE123',
-        'type' => 'oauth.authorization.revoked',
-        'event_id' => (string) Str::uuid(),
-        'data' => ['type' => 'revocation', 'object' => ['revocation' => ['revoker_type' => 'MERCHANT']]],
-    ])->assertOk();
-
-    $restaurant = $this->menu->restaurant->refresh();
-
-    expect($restaurant->squareConnected())->toBeFalse()
-        ->and($restaurant->square_access_token)->toBeNull()
-        ->and($restaurant->payment_processor)->toBe(PaymentProcessor::Stripe);
-});
 
 it('reports a refund Square couldn’t make', function () {
     Log::spy();
     $this->order->forceFill(['square_refund_id' => 'sqref_1'])->save();
 
-    squareEvent([
+    squareEvent($this->menu->restaurant, [
         'merchant_id' => 'MSQUARE123',
         'type' => 'refund.updated',
         'event_id' => (string) Str::uuid(),

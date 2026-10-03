@@ -63,11 +63,9 @@ Route::post('push-tokens', [PushTokenController::class, 'store'])
 // that restaurant's signing secret; each event processed once).
 Route::post('stripe/webhook/{restaurant:slug}', StripeWebhookController::class)->name('stripe.webhook');
 
-// Square: the platform's Square application sends the events of every restaurant connected to
-// it here, one URL per environment (signature verified with that subscription's key).
-Route::post('square/webhook/{environment}', SquareWebhookController::class)
-    ->whereIn('environment', ['sandbox', 'production'])
-    ->name('square.webhook');
+// Square: each restaurant's own Square application sends its events here (signature verified
+// with that restaurant's signature key; each event processed once).
+Route::post('square/webhook/{restaurant:slug}', SquareWebhookController::class)->name('square.webhook');
 
 // Accounts
 Route::prefix('auth')->name('auth.')->group(function (): void {

@@ -956,26 +956,29 @@ hours) and the account endpoints.
     its owner in the back office. Each order records the processor it was placed with, and its
     refund, expiry and webhooks follow the order rather than the restaurant, so a switch never
     strands an order. Existing orders were all Stripe.
-246. **Restaurants connect Square with OAuth** ("Connect Square") to the platform's own Square
-    application, instead of pasting keys as with Stripe: owners never handle credentials, there's
-    one webhook subscription per environment for every restaurant, and one Apple merchant ID can
-    serve every brand's app (Apple allows one active payment processing certificate per merchant
-    ID, so Square's can't share Stripe's). Sandbox and production are separate applications; a
-    restaurant connects in one of them, which the back office says.
+246. **Each restaurant enters its own Square application's credentials**, like Stripe's keys:
+    the application ID (public, for the payment forms) and the access token, plus the signature
+    key of its own webhook subscription, all stored with the restaurant (the secrets encrypted)
+    and nothing in `.env`. The application ID says whether it's the sandbox or production. (At
+    first restaurants connected with OAuth to a platform Square application whose credentials
+    were in `.env`; replaced, so each restaurant's Square settings live with it, as Stripe's do.)
+    In the apps, Apple Pay with Square needs a second merchant ID per brand, with its certificate
+    in the restaurant's Square application: Apple allows one active payment processing
+    certificate per merchant ID, and the first is Stripe's.
 247. **A Square payment is charged while the customer waits.** The app turns the card or wallet
     into a token with Square's own form, creates the order, then sends the token to
     `/orders/{id}/square-payment`, which charges it (`CreatePayment`, `autocomplete`). A
-    completed payment places the order at once. Webhooks only reconcile: a payment whose answer
-    was lost, a refund that failed, an account disconnected on Square's side. Square also sends
-    the restaurant's in-person sales; those are ignored without being stored.
+    completed payment places the order at once. Webhooks only reconcile (a payment whose answer
+    was lost, a refund that failed), so the webhook is recommended rather than required. It's
+    one per restaurant (`/square/webhook/{slug}`), like Stripe's. Square also sends the
+    restaurant's in-person sales; those are ignored without being stored.
 248. **One Square payment at a time per order**, under a lock that the expiry of unpaid orders
     respects too. A paid order isn't charged again (a retry answers that it's paid); a cancelled
     one isn't charged at all. Square's idempotency key is a hash of the order and the request's
     Idempotency-Key, within Square's 45 characters: a retried request is charged once, a new card
     is a new request. A declined card leaves the order waiting for another card.
 249. **Switching only goes to a processor that's ready**, after a confirmation, and the first one
-    set up is used straight away. When Square is lost (disconnected, revoked on Square's side, or
-    its refresh token refused), the restaurant goes back to Stripe if Stripe is set up.
+    set up is used straight away.
 250. **Cards are checked with the bank through Square's buyer verification** (3-D Secure as Square
     sees fit), on the web (verification details when the card is tokenised) and in the apps
     (Square's card form with buyer verification). Apple Pay and Google Pay authenticate on the
@@ -983,15 +986,17 @@ hours) and the account endpoints.
 251. **No Square PHP SDK:** a handful of endpoints, called with Laravel's HTTP client, pinned to
     Square API version 2026-09-16, faked in tests with `Http::fake`. Only requests with an
     idempotency key (payments, refunds) are retried, when Square can't be reached or has a fault
-    of its own. A declined card becomes a customer-safe message (`402`); a token Square no longer
-    accepts, a lost connection.
-252. **Square tokens are renewed daily when they're a week old** (`square:refresh-tokens`), as
-    Square recommends; they last 30 days. A refused refresh disconnects the restaurant.
+    of its own. A declined card becomes a customer-safe message (`402`); an access token Square
+    doesn't accept, a message in the back office to enter it again.
+252. **The Square credentials are checked when they're saved**: the back office asks Square for the
+    account's name and locations straight away (choosing the location when only one takes the
+    restaurant's currency), so a wrong or mismatched token shows at once. Square's personal
+    access tokens don't expire, so there's nothing to renew.
 253. **Square's Apple Pay verification file is on every brand's website**
     (`/.well-known/apple-developer-merchantid-domain-association`, from `app/public`), since a
     restaurant can switch to Square at any time; Stripe's domain registration doesn't use a file.
-    The website's domain is registered with the restaurant's Square account when Square is
-    connected or checked, and when the domain changes.
+    The website's domain is registered with the restaurant's Square account when its credentials
+    are saved or checked, and when the domain changes.
 254. **In the apps, Square's Apple Pay and Google Pay buttons are the official ones drawn by
     Stripe's package** (only the button), which the app already has; Square's SDK has none.
 255. **Kotlin 2.2.21 for the whole Android build:** Square's Android SDK needs it and its config

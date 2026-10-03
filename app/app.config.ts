@@ -24,10 +24,9 @@ interface Brand {
   /** Apple Pay: the merchant ID registered with Apple and in the restaurant's Stripe account. */
   appleMerchantId: string;
   /**
-   * Apple Pay with Square: the platform's Square merchant ID, the same for every brand, with
-   * its certificate in the platform's Square application. An Apple merchant ID can only serve
-   * one payment processor, so it's not the Stripe one. Leave it out for Apple Pay with Stripe
-   * only.
+   * Apple Pay with Square: a second merchant ID, with its certificate in the restaurant's own
+   * Square application. An Apple merchant ID can only serve one payment processor, so it's not
+   * the Stripe one. Leave it out for Apple Pay with Stripe only.
    */
   squareAppleMerchantId?: string;
   /** For the Android icon's background and the notification icon. */

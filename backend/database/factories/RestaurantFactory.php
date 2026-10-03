@@ -3,7 +3,6 @@
 namespace Database\Factories;
 
 use App\Enums\PaymentProcessor;
-use App\Enums\SquareEnvironment;
 use App\Models\Restaurant;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
@@ -53,19 +52,18 @@ class RestaurantFactory extends Factory
     }
 
     /**
-     * Taking payments with its own Square account, connected in the sandbox to the platform's
-     * Square application (tests fake Square), at its only location.
+     * Taking payments with its own Square application's sandbox credentials (tests fake
+     * Square; the signature key is the one tests sign their webhooks with), at its only
+     * location.
      */
     public function square(): static
     {
         return $this->state([
             'payment_processor' => PaymentProcessor::Square,
-            'square_environment' => SquareEnvironment::Sandbox,
-            'square_merchant_id' => 'M'.Str::upper(Str::random(12)),
+            'square_application_id' => 'sandbox-sq0idb-'.Str::random(22),
+            'square_access_token' => 'EAAA'.Str::random(60),
+            'square_webhook_signature_key' => 'test-square-signature-key',
             'square_merchant_name' => 'Kitchen on Square',
-            'square_access_token' => 'EAAA'.Str::random(40),
-            'square_refresh_token' => 'EQAA'.Str::random(40),
-            'square_token_expires_at' => now()->addDays(30),
             'square_location_id' => 'LMAIN',
             'square_locations' => [['id' => 'LMAIN', 'name' => 'Main Street', 'currency' => 'AUD', 'active' => true]],
         ]);

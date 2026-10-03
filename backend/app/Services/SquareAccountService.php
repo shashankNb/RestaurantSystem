@@ -4,58 +4,26 @@ namespace App\Services;
 
 use App\Models\Restaurant;
 use App\Payments\PaymentsUnavailable;
-use App\Payments\Square\SquareApp;
-use App\Payments\Square\SquareConnectionLost;
 use App\Payments\Square\SquareGateway;
 use App\Payments\Square\SquareLocation;
 use App\Payments\WalletSetup;
-use Illuminate\Support\Facades\Log;
 
 /**
- * A restaurant's connection to its Square account: connecting it ("Connect with Square"),
- * checking it, keeping its tokens fresh and disconnecting it.
+ * A restaurant's own Square account, through the credentials its owner entered: checking
+ * them and loading the account's name and locations, and registering the website for Apple
+ * Pay.
  */
 final class SquareAccountService
 {
     public function __construct(private readonly SquareGateway $square) {}
 
     /**
-     * Connects the restaurant's Square account with the code from Square's approval page,
-     * then loads its name and locations. If Stripe isn't set up, Square becomes the processor.
-     * Returns false when the account is connected but its details couldn't be loaded yet
-     * ("Check with Square" tries again).
+     * Asks Square for the account's name and locations (which also checks the access token),
+     * keeps the chosen location if it can still take the restaurant's currency or chooses the
+     * only one that can, then registers the website for Apple Pay. If Square is now ready and
+     * Stripe isn't, Square becomes the processor.
      *
-     * @throws PaymentsUnavailable when Square doesn't accept the code
-     */
-    public function connect(Restaurant $restaurant, SquareApp $app, string $code): bool
-    {
-        $connection = $this->square->exchangeCode($app, $code);
-
-        $restaurant->forceFill([
-            'square_environment' => $app->environment,
-            'square_merchant_id' => $connection->merchantId,
-            'square_access_token' => $connection->accessToken,
-            'square_refresh_token' => $connection->refreshToken,
-            'square_token_expires_at' => $connection->expiresAt,
-        ])->save();
-
-        try {
-            $this->check($restaurant);
-        } catch (PaymentsUnavailable $exception) {
-            report($exception);
-
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Asks Square for the account's name and locations, choosing the location when only one
-     * can take the restaurant's currency, then registers the website for Apple Pay. The first
-     * processor that's ready is the one used.
-     *
-     * @throws PaymentsUnavailable
+     * @throws PaymentsUnavailable (SquareConnectionLost when Square doesn't accept the token)
      */
     public function check(Restaurant $restaurant): void
     {
@@ -93,51 +61,5 @@ final class SquareAccountService
         $restaurant->forceFill(['square_wallets' => $setup->toArray()])->save();
 
         return $setup;
-    }
-
-    /**
-     * Renews the access token (Square recommends weekly; it lasts 30 days). A connection
-     * Square no longer accepts is forgotten, and the restaurant goes back to Stripe if it can.
-     * Returns false then.
-     *
-     * @throws PaymentsUnavailable when Square can't be reached (the token still has weeks left)
-     */
-    public function renew(Restaurant $restaurant): bool
-    {
-        try {
-            $connection = $this->square->refresh($restaurant);
-        } catch (SquareConnectionLost $lost) {
-            Log::warning('Square no longer accepts a restaurant’s connection; its owner has to connect Square again.', [
-                'restaurant' => $restaurant->slug,
-                'error' => $lost->getPrevious()?->getMessage(),
-            ]);
-            $restaurant->disconnectSquare();
-
-            return false;
-        }
-
-        $restaurant->forceFill([
-            'square_merchant_id' => $connection->merchantId,
-            'square_access_token' => $connection->accessToken,
-            'square_refresh_token' => $connection->refreshToken,
-            'square_token_expires_at' => $connection->expiresAt,
-        ])->save();
-
-        return true;
-    }
-
-    /**
-     * Gives up the platform's access to the Square account, and forgets it. If Square can't be
-     * reached, it's forgotten here anyway (the owner can also remove it in Square's dashboard).
-     */
-    public function disconnect(Restaurant $restaurant): void
-    {
-        try {
-            $this->square->revoke($restaurant);
-        } catch (PaymentsUnavailable $exception) {
-            report($exception);
-        }
-
-        $restaurant->disconnectSquare();
     }
 }

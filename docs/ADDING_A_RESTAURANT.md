@@ -16,8 +16,8 @@ Plan on about an hour of your time, plus however long the app stores take to rev
 - The web address for their ordering site (for example `order.kathmandukitchen.com.au`), and
   someone who can add DNS records for it.
 - A Stripe account or a Square account in the restaurant's name, with their bank account for
-  payouts (many Australian restaurants already use Square). They connect it themselves, so you
-  never handle their secret keys.
+  payouts (many Australian restaurants already use Square). They enter its keys themselves, so
+  you never handle their secret keys.
 - Whose Apple and Google developer accounts publish the app: usually yours, for every restaurant.
 
 ## 1. Create the restaurant
@@ -70,19 +70,27 @@ processor they were paid with, refunds included.
 
 ### With Square
 
-1. Under **Square**, press **Connect Square**, sign in to the restaurant's Square account on
-   Square's page and approve. (Your platform's Square application has to be set up first: see
-   [SETUP.md](SETUP.md#square-sandbox).)
+The restaurant uses its own Square application, made in Square's Developer Console
+([developer.squareup.com](https://developer.squareup.com/apps)) with its Square account.
+
+1. From the application's **Credentials** page, paste the **application ID** (`sq0idp-…`, or
+   `sandbox-sq0idb-…` for test payments) and the **access token** (`EAAA…`, from the same
+   environment) under **Square**, and save. The back office checks them with Square straight
+   away, and refuses them pasted the wrong way round.
 2. Choose the **Location** payments go to, if the account has more than one that takes
    Australian dollars, and save.
-3. Apple Pay and Google Pay: Google Pay needs nothing. For Apple Pay on the website, the website's
+3. Recommended: on the application's **Webhooks** page, add a subscription with the **Webhook
+   URL** shown under Square (`https://api…/api/v1/square/webhook/<link-name>`) and the events
+   `payment.created`, `payment.updated` and `refund.updated`, then paste its **signature key**
+   under Square. It catches a payment whose answer went astray.
+4. Apple Pay and Google Pay: Google Pay needs nothing. For Apple Pay on the website, the website's
    domain is registered with the Square account once both are in (the checklist under Square
-   shows it); **Check with Square** checks again. In the apps they work through your platform's
-   Square merchant ID (`squareAppleMerchantId` in step 4).
+   shows it); **Check with Square** checks again. In the app, Apple Pay needs the Square merchant
+   ID (`squareAppleMerchantId` in step 4) with its certificate in this Square application (see
+   [SETUP.md](SETUP.md#payments-on-ios-and-android)).
 
-**Connect a sandbox account (test)** connects a Square sandbox account instead: test payments
-with Square's test cards, such as `4111 1111 1111 1111`. Disconnect it and connect the live
-account when the restaurant is ready.
+Sandbox credentials take test payments with Square's test cards, such as
+`4111 1111 1111 1111`; replace them with the production ones when the restaurant is ready.
 
 ### With Stripe
 
@@ -138,7 +146,7 @@ Then edit `brand.json`:
 | `scheme` | Deep links into the app; letters only | kathmandukitchen |
 | `bundleId` | App Store and Google Play identifier, never changed once published | au.com.kathmandukitchen.ordering |
 | `appleMerchantId` | Apple Pay merchant ID (see step 3) | merchant.au.com.kathmandukitchen.ordering |
-| `squareAppleMerchantId` | Apple Pay with Square: your platform's one Square merchant ID, the same in every brand (see [SETUP.md](SETUP.md#payments-on-ios-and-android)) | merchant.au.com.yourplatform.square |
+| `squareAppleMerchantId` | Apple Pay with Square: a second merchant ID, with its certificate in the restaurant's Square application (see [SETUP.md](SETUP.md#payments-on-ios-and-android)) | merchant.au.com.kathmandukitchen.ordering.square |
 | `brandColor` | The same colour as in the back office | #1F5A7A |
 | `webUrl` | The website's address from step 6 | https://order.kathmandukitchen.com.au |
 | `easProjectId` | Added in step 5 | |

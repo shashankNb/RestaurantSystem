@@ -6,7 +6,6 @@ use App\Casts\Secret;
 use App\Enums\PaymentProcessor;
 use App\Enums\RestaurantRole;
 use App\Enums\SquareEnvironment;
-use App\Payments\Square\SquareApp;
 use App\Payments\Square\SquareLocation;
 use App\Payments\WalletSetup;
 use App\Support\RestaurantOrigins;
@@ -20,7 +19,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -29,8 +27,6 @@ use Illuminate\Support\Facades\Storage;
  * @property array{line1?: ?string, line2?: ?string, suburb?: ?string, state?: ?string, postcode?: ?string, country?: ?string}|null $address
  * @property array<string, mixed>|null $stripe_wallets
  * @property PaymentProcessor $payment_processor
- * @property SquareEnvironment|null $square_environment
- * @property Carbon|null $square_token_expires_at
  * @property list<array<string, mixed>>|null $square_locations
  * @property array<string, mixed>|null $square_wallets
  */
@@ -41,6 +37,9 @@ use Illuminate\Support\Facades\Storage;
     'stripe_publishable_key',
     'stripe_secret_key',
     'stripe_webhook_secret',
+    'square_application_id',
+    'square_access_token',
+    'square_webhook_signature_key',
     'square_location_id',
     'description',
     'timezone',
@@ -60,7 +59,7 @@ use Illuminate\Support\Facades\Storage;
     'auto_reject_minutes',
 ])]
 // Its own Stripe and Square accounts' secrets: never in a response, a log or an export.
-#[Hidden(['stripe_secret_key', 'stripe_webhook_secret', 'square_access_token', 'square_refresh_token'])]
+#[Hidden(['stripe_secret_key', 'stripe_webhook_secret', 'square_access_token', 'square_webhook_signature_key'])]
 #[RouteKey('slug')]
 class Restaurant extends Model implements HasAvatar
 {
@@ -80,7 +79,7 @@ class Restaurant extends Model implements HasAvatar
                 $restaurant->stripe_wallets = null;
             }
 
-            if ($restaurant->isDirty(['square_merchant_id', 'square_environment']) && ! $restaurant->isDirty('square_wallets')) {
+            if ($restaurant->isDirty(['square_application_id', 'square_access_token']) && ! $restaurant->isDirty('square_wallets')) {
                 $restaurant->square_wallets = null;
             }
         });
@@ -98,10 +97,8 @@ class Restaurant extends Model implements HasAvatar
             'stripe_webhook_secret' => Secret::class,
             'stripe_wallets' => 'array',
             'payment_processor' => PaymentProcessor::class,
-            'square_environment' => SquareEnvironment::class,
             'square_access_token' => Secret::class,
-            'square_refresh_token' => Secret::class,
-            'square_token_expires_at' => 'datetime',
+            'square_webhook_signature_key' => Secret::class,
             'square_locations' => 'array',
             'square_wallets' => 'array',
             'is_accepting_orders' => 'boolean',
@@ -237,7 +234,9 @@ class Restaurant extends Model implements HasAvatar
             PaymentProcessor::Stripe => str_starts_with((string) $this->stripe_publishable_key, 'pk_')
                 && filled($this->stripe_secret_key)
                 && filled($this->stripe_webhook_secret),
-            PaymentProcessor::Square => $this->squareConnected() && filled($this->square_location_id),
+            // Its application and access token, and the location payments go to. (The webhook
+            // only catches what's missed, so it's recommended rather than required.)
+            PaymentProcessor::Square => $this->squareConfigured() && filled($this->square_location_id),
         };
     }
 
@@ -258,16 +257,16 @@ class Restaurant extends Model implements HasAvatar
         return true;
     }
 
-    /** Its Square account is connected to the platform's Square application. */
-    public function squareConnected(): bool
+    /** Its own Square application's ID and access token are in. */
+    public function squareConfigured(): bool
     {
-        return filled($this->square_access_token) && $this->squareApp() !== null;
+        return $this->squareEnvironment() !== null && filled($this->square_access_token);
     }
 
-    /** The platform's Square application for the environment it connected in. */
-    public function squareApp(): ?SquareApp
+    /** Sandbox or production, from its Square application ID. */
+    public function squareEnvironment(): ?SquareEnvironment
     {
-        return $this->square_environment === null ? null : SquareApp::for($this->square_environment);
+        return SquareEnvironment::fromApplicationId($this->square_application_id);
     }
 
     /**
@@ -278,27 +277,6 @@ class Restaurant extends Model implements HasAvatar
     public function squareLocations(): array
     {
         return array_map(SquareLocation::fromArray(...), $this->square_locations ?? []);
-    }
-
-    /**
-     * Forgets its Square account (after it's revoked, here or on Square's side), and goes back
-     * to Stripe if Stripe is set up.
-     */
-    public function disconnectSquare(): void
-    {
-        $this->forceFill([
-            'square_environment' => null,
-            'square_merchant_id' => null,
-            'square_merchant_name' => null,
-            'square_access_token' => null,
-            'square_refresh_token' => null,
-            'square_token_expires_at' => null,
-            'square_location_id' => null,
-            'square_locations' => null,
-            'square_wallets' => null,
-        ])->save();
-
-        $this->useReadyProcessor();
     }
 
     /**

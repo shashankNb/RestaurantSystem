@@ -20,69 +20,15 @@ use Throwable;
 
 /**
  * Square's REST API, through Laravel's HTTP client and pinned to one API version
- * (services.square.version). Each restaurant's calls use the tokens of the Square account it
- * connected. A declined card becomes PaymentDeclined; anything else that goes wrong,
- * PaymentsUnavailable (SquareConnectionLost when Square no longer accepts the tokens).
+ * (services.square.version). Each restaurant's calls use its own Square application's access
+ * token, in the environment its application ID is for. A declined card becomes
+ * PaymentDeclined; anything else that goes wrong, PaymentsUnavailable (SquareConnectionLost
+ * when Square doesn't accept the access token).
  */
 final class HttpSquareGateway implements SquareGateway
 {
     /** Square's error codes that mean the card or wallet itself was refused. */
     private const CARD_PROBLEMS = ['CARD_TOKEN_EXPIRED', 'CARD_TOKEN_USED'];
-
-    public function exchangeCode(SquareApp $app, string $code): SquareConnection
-    {
-        return self::connection($this->json($this->send(fn (): Response => $this->client($app->environment)->post('/oauth2/token', [
-            'client_id' => $app->applicationId,
-            'client_secret' => $app->applicationSecret,
-            'grant_type' => 'authorization_code',
-            'code' => $code,
-        ]))));
-    }
-
-    public function refresh(Restaurant $restaurant): SquareConnection
-    {
-        $app = self::app($restaurant);
-        $refreshToken = $restaurant->square_refresh_token;
-
-        if (! is_string($refreshToken) || $refreshToken === '') {
-            throw PaymentsUnavailable::notConfigured();
-        }
-
-        $response = $this->send(fn (): Response => $this->client($app->environment)->post('/oauth2/token', [
-            'client_id' => $app->applicationId,
-            'client_secret' => $app->applicationSecret,
-            'grant_type' => 'refresh_token',
-            'refresh_token' => $refreshToken,
-        ]));
-
-        // Revoked, or no longer valid: only connecting again helps.
-        if ($response->status() === 400 || $response->status() === 401) {
-            throw SquareConnectionLost::from(new RuntimeException('Square refused the refresh token: '.self::errorDetail($response)));
-        }
-
-        return self::connection($this->json($response));
-    }
-
-    public function revoke(Restaurant $restaurant): void
-    {
-        $app = self::app($restaurant);
-        $token = $restaurant->square_access_token;
-
-        if (! is_string($token) || $token === '') {
-            return;
-        }
-
-        $response = $this->send(fn (): Response => $this->client($app->environment)
-            ->withHeaders(['Authorization' => "Client {$app->applicationSecret}"])
-            ->post('/oauth2/revoke', ['client_id' => $app->applicationId, 'access_token' => $token]));
-
-        // Already revoked or unknown: either way, it's no longer connected.
-        if ($response->clientError()) {
-            return;
-        }
-
-        $this->json($response);
-    }
 
     public function merchantName(Restaurant $restaurant): string
     {
@@ -188,21 +134,17 @@ final class HttpSquareGateway implements SquareGateway
         return (string) $refund['id'];
     }
 
-    private static function app(Restaurant $restaurant): SquareApp
-    {
-        return $restaurant->squareApp() ?? throw PaymentsUnavailable::notConfigured();
-    }
-
-    /** Calls for the restaurant, with its access token. */
+    /** Calls for the restaurant, with its access token, in its application's environment. */
     private function api(Restaurant $restaurant): PendingRequest
     {
+        $environment = $restaurant->squareEnvironment();
         $token = $restaurant->square_access_token;
 
-        if ($restaurant->square_environment === null || ! is_string($token) || $token === '') {
+        if ($environment === null || ! is_string($token) || $token === '') {
             throw PaymentsUnavailable::notConfigured();
         }
 
-        return $this->client($restaurant->square_environment)->withToken($token);
+        return $this->client($environment)->withToken($token);
     }
 
     private function client(SquareEnvironment $environment): PendingRequest
@@ -254,23 +196,6 @@ final class HttpSquareGateway implements SquareGateway
         report($exception);
 
         throw $response->status() === 401 ? SquareConnectionLost::from($exception) : PaymentsUnavailable::because($exception);
-    }
-
-    /**
-     * @param  array<string, mixed>  $token
-     */
-    private static function connection(array $token): SquareConnection
-    {
-        if (! isset($token['access_token'], $token['refresh_token'], $token['merchant_id'])) {
-            throw PaymentsUnavailable::because(new RuntimeException('Square answered without the tokens.'));
-        }
-
-        return new SquareConnection(
-            merchantId: (string) $token['merchant_id'],
-            accessToken: (string) $token['access_token'],
-            refreshToken: (string) $token['refresh_token'],
-            expiresAt: isset($token['expires_at']) ? CarbonImmutable::parse((string) $token['expires_at']) : CarbonImmutable::now()->addDays(30),
-        );
     }
 
     /** The first of Square's errors that's about the card or wallet, if any. */

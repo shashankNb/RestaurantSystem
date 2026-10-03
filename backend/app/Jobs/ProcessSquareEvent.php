@@ -3,7 +3,6 @@
 namespace App\Jobs;
 
 use App\Enums\PaymentProcessor;
-use App\Enums\SquareEnvironment;
 use App\Models\Order;
 use App\Models\Restaurant;
 use App\Models\SquareEvent;
@@ -14,17 +13,17 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Acts on a verified, stored Square event. Payments are normally confirmed while the
- * customer waits (see SquareCheckoutService); these events catch the rest: a payment whose
- * answer never reached us, a refund Square couldn't make, an account disconnected on
- * Square's side. Each event is processed once.
+ * Acts on a verified, stored Square event from a restaurant's own Square application.
+ * Payments are normally confirmed while the customer waits (see SquareCheckoutService);
+ * these events catch the rest: a payment whose answer never reached us, and a refund Square
+ * couldn't make. Each event is processed once, and only ever touches its restaurant's orders.
  */
 class ProcessSquareEvent implements ShouldQueue
 {
     use Queueable;
 
     /** The events the platform acts on; others are acknowledged and ignored. */
-    public const HANDLED = ['payment.created', 'payment.updated', 'refund.updated', 'oauth.authorization.revoked'];
+    public const HANDLED = ['payment.created', 'payment.updated', 'refund.updated'];
 
     public int $tries = 5;
 
@@ -33,23 +32,17 @@ class ProcessSquareEvent implements ShouldQueue
     public function __construct(public readonly int $squareEventId) {}
 
     /**
-     * Whether an event is about one of the platform's orders or connections. A restaurant's
-     * Square account also takes its in-person payments; those events are acknowledged
-     * without being stored.
+     * Whether an event is about one of the restaurant's online orders. Its Square account also
+     * takes its in-person payments; those events are acknowledged without being stored.
      *
      * @param  array<string, mixed>  $event
      */
-    public static function concernsUs(array $event, SquareEnvironment $environment): bool
+    public static function concernsUs(array $event, Restaurant $restaurant): bool
     {
         $type = (string) ($event['type'] ?? '');
-        $merchantId = $event['merchant_id'] ?? null;
 
-        if (! in_array($type, self::HANDLED, true) || ! is_string($merchantId)) {
+        if (! in_array($type, self::HANDLED, true)) {
             return false;
-        }
-
-        if ($type === 'oauth.authorization.revoked') {
-            return self::restaurants($merchantId, $environment)->exists();
         }
 
         $object = $event['data']['object'] ?? [];
@@ -58,35 +51,30 @@ class ProcessSquareEvent implements ShouldQueue
             $refund = is_array($object) ? ($object['refund'] ?? []) : [];
 
             return is_array($refund) && isset($refund['id'])
-                && self::orders($merchantId, $environment)->where('square_refund_id', $refund['id'])->exists();
+                && self::orders($restaurant)->where('square_refund_id', $refund['id'])->exists();
         }
 
         $payment = is_array($object) ? ($object['payment'] ?? []) : [];
 
-        return is_array($payment) && ($payment['status'] ?? null) === 'COMPLETED' && self::orderFor($payment, $merchantId, $environment) !== null;
+        return is_array($payment) && ($payment['status'] ?? null) === 'COMPLETED' && self::orderFor($payment, $restaurant) !== null;
     }
 
     public function handle(OrderService $orders): void
     {
-        $event = SquareEvent::query()->find($this->squareEventId);
+        $event = SquareEvent::query()->with('restaurant')->find($this->squareEventId);
 
-        if ($event === null || $event->processed_at !== null) {
+        if ($event === null || $event->processed_at !== null || $event->restaurant === null) {
             return;
         }
 
-        $merchantId = (string) $event->merchant_id;
         $object = $event->payload['data']['object'] ?? [];
 
-        if ($event->type === 'oauth.authorization.revoked') {
-            self::restaurants($merchantId, $event->environment)->each(function (Restaurant $restaurant): void {
-                Log::warning('A restaurant’s Square account was disconnected on Square’s side.', ['restaurant' => $restaurant->slug]);
-                $restaurant->disconnectSquare();
-            });
-        } elseif ($event->type === 'refund.updated') {
+        if ($event->type === 'refund.updated') {
             $refund = is_array($object) ? ($object['refund'] ?? []) : [];
 
             if (is_array($refund) && in_array($refund['status'] ?? null, ['FAILED', 'REJECTED'], true)) {
                 Log::critical('Square couldn’t make a refund; refund it in the restaurant’s Square dashboard.', [
+                    'restaurant' => $event->restaurant->slug,
                     'refund' => $refund['id'] ?? null,
                     'payment' => $refund['payment_id'] ?? null,
                     'status' => $refund['status'],
@@ -96,7 +84,7 @@ class ProcessSquareEvent implements ShouldQueue
             $payment = is_array($object) ? ($object['payment'] ?? []) : [];
 
             if (is_array($payment) && ($payment['status'] ?? null) === 'COMPLETED') {
-                $order = self::orderFor($payment, $merchantId, $event->environment);
+                $order = self::orderFor($payment, $event->restaurant);
 
                 if ($order !== null) {
                     $orders->markPaid($order, (string) ($payment['id'] ?? ''), (int) ($payment['amount_money']['amount'] ?? 0));
@@ -108,12 +96,12 @@ class ProcessSquareEvent implements ShouldQueue
     }
 
     /**
-     * The Square order a payment belongs to: by its payment ID, or by the order it names
-     * (reference_id), among the orders of the restaurants connected to that Square account.
+     * The restaurant's Square order a payment belongs to: by its payment ID, or by the order
+     * it names (reference_id).
      *
      * @param  array<string, mixed>  $payment
      */
-    private static function orderFor(array $payment, string $merchantId, SquareEnvironment $environment): ?Order
+    private static function orderFor(array $payment, Restaurant $restaurant): ?Order
     {
         $id = $payment['id'] ?? null;
         $reference = $payment['reference_id'] ?? null;
@@ -122,7 +110,7 @@ class ProcessSquareEvent implements ShouldQueue
             return null;
         }
 
-        return self::orders($merchantId, $environment)
+        return self::orders($restaurant)
             ->where(fn (Builder $query) => $query
                 ->when(is_string($id), fn (Builder $query) => $query->orWhere('square_payment_id', $id))
                 ->when(is_string($reference), fn (Builder $query) => $query->orWhere('public_id', $reference)))
@@ -132,18 +120,8 @@ class ProcessSquareEvent implements ShouldQueue
     /**
      * @return Builder<Order>
      */
-    private static function orders(string $merchantId, SquareEnvironment $environment): Builder
+    private static function orders(Restaurant $restaurant): Builder
     {
-        return Order::query()
-            ->where('payment_processor', PaymentProcessor::Square)
-            ->whereIn('restaurant_id', self::restaurants($merchantId, $environment)->select('id'));
-    }
-
-    /**
-     * @return Builder<Restaurant>
-     */
-    private static function restaurants(string $merchantId, SquareEnvironment $environment): Builder
-    {
-        return Restaurant::query()->where('square_merchant_id', $merchantId)->where('square_environment', $environment);
+        return Order::query()->where('restaurant_id', $restaurant->id)->where('payment_processor', PaymentProcessor::Square);
     }
 }

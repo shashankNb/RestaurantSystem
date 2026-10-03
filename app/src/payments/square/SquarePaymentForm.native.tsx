@@ -24,8 +24,9 @@ import { PAYMENT_FAILED_MESSAGE, PROCESSOR_CHANGED_MESSAGE, paymentErrorMessage,
 import type { SquareSettings } from '@/payments/use-payment-settings';
 
 /**
- * Apple Pay with Square: the platform's Square merchant ID (app.config.ts, from the brand's
- * squareAppleMerchantId). It's in the build's entitlements, next to the Stripe one.
+ * Apple Pay with Square: the brand's second merchant ID (app.config.ts, from its
+ * squareAppleMerchantId), with its certificate in the restaurant's Square application. It's
+ * in the build's entitlements, next to the Stripe one.
  */
 const squareMerchantId = (Constants.expoConfig?.extra as { squareAppleMerchantId?: string | null } | undefined)?.squareAppleMerchantId ?? null;
 

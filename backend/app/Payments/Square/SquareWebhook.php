@@ -5,10 +5,11 @@ namespace App\Payments\Square;
 use App\Payments\InvalidWebhook;
 
 /**
- * Checks that a webhook really came from Square: its x-square-hmacsha256-signature header
- * must be an HMAC-SHA256 of the subscription's notification URL followed by the raw body,
- * keyed with the subscription's signature key (base64). Square signs the URL exactly as it's
- * set in the subscription, so it's built from APP_URL, not from the request.
+ * Checks that a webhook really came from the restaurant's Square application: its
+ * x-square-hmacsha256-signature header must be an HMAC-SHA256 of the subscription's
+ * notification URL followed by the raw body, keyed with the subscription's signature key
+ * (base64). Square signs the URL exactly as it's set in the subscription, so it's built from
+ * APP_URL, not from the request.
  */
 final class SquareWebhook
 {
@@ -25,7 +26,7 @@ final class SquareWebhook
     public function verify(string $payload, ?string $signature): array
     {
         if ($this->signatureKey === null || $this->signatureKey === '') {
-            throw new InvalidWebhook('The Square webhook signature key isn’t configured.');
+            throw new InvalidWebhook('The Square webhook signature key isn’t set for this restaurant.');
         }
 
         if ($signature === null || $signature === '') {

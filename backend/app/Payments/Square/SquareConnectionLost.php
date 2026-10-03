@@ -6,13 +6,14 @@ use App\Payments\PaymentsUnavailable;
 use Throwable;
 
 /**
- * Square no longer accepts the restaurant's connection: the owner revoked it, or its refresh
- * token was refused. The owner has to connect Square again.
+ * Square doesn't accept the restaurant's access token: it's wrong, from the other
+ * environment than its application ID, or was replaced in Square's Developer Console. The
+ * owner has to enter it again.
  */
 final class SquareConnectionLost extends PaymentsUnavailable
 {
     public static function from(Throwable $previous): self
     {
-        return new self('This restaurant’s Square account isn’t connected any more.', previous: $previous);
+        return new self('Square didn’t accept this restaurant’s access token.', previous: $previous);
     }
 }

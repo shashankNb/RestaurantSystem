@@ -10,36 +10,16 @@ use App\Payments\WalletSetup;
 
 /**
  * Square, behind an interface so tests can swap in a fake. Every call acts for one
- * restaurant, with the tokens of the Square account it connected; every call that changes
- * something takes an idempotency key, so a retry never charges or refunds twice.
+ * restaurant, with its own Square application's access token (and in its environment, from
+ * its application ID); every call that changes something takes an idempotency key, so a
+ * retry never charges or refunds twice.
  */
 interface SquareGateway
 {
     /**
-     * Swaps the code from Square's approval page for the restaurant's tokens.
-     *
-     * @throws PaymentsUnavailable
-     */
-    public function exchangeCode(SquareApp $app, string $code): SquareConnection;
-
-    /**
-     * Renews the restaurant's access token.
-     *
-     * @throws SquareConnectionLost when Square refuses the refresh token
-     * @throws PaymentsUnavailable
-     */
-    public function refresh(Restaurant $restaurant): SquareConnection;
-
-    /**
-     * Gives up the platform's access to the restaurant's Square account.
-     *
-     * @throws PaymentsUnavailable
-     */
-    public function revoke(Restaurant $restaurant): void;
-
-    /**
      * The Square account's business name, for the back office.
      *
+     * @throws SquareConnectionLost when Square doesn't accept the access token
      * @throws PaymentsUnavailable
      */
     public function merchantName(Restaurant $restaurant): string;

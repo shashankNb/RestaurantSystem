@@ -4,10 +4,10 @@ namespace App\Filament\Pages\Tenancy;
 
 use App\Enums\PaymentProcessor;
 use App\Enums\SquareEnvironment;
+use App\Http\Controllers\Api\SquareWebhookController;
 use App\Models\Restaurant;
 use App\Payments\PaymentGateway;
 use App\Payments\PaymentsUnavailable;
-use App\Payments\Square\SquareApp;
 use App\Payments\Square\SquareConnectionLost;
 use App\Payments\Square\SquareLocation;
 use App\Payments\WalletSetup;
@@ -186,56 +186,65 @@ class EditRestaurantSettings extends EditTenantProfile
 
             Section::make('Square')
                 ->key('square')
-                ->description('Connect your Square account: you sign in to Square and approve, then choose the location payments go to. A Square sandbox account takes test payments with Square’s test cards.')
+                ->description('Use your own Square application: in Square’s Developer Console (developer.squareup.com), open your application’s Credentials, copy its application ID and access token, then add a webhook so a payment whose answer goes astray still reaches the kitchen. Sandbox credentials take test payments with Square’s test cards; production ones take real payments.')
                 ->columns(2)
                 ->collapsible()
                 ->afterHeader([
-                    Action::make('connectSquare')
-                        ->label('Connect Square')
-                        ->icon(Heroicon::OutlinedLink)
-                        ->link()
-                        ->visible(fn (): bool => ! $this->restaurant()->squareConnected() && SquareApp::for(SquareEnvironment::Production) !== null)
-                        ->url(fn (): string => route('square.connect', ['restaurant' => $this->restaurant(), 'environment' => SquareEnvironment::Production->value])),
-                    Action::make('connectSquareSandbox')
-                        ->label('Connect a sandbox account (test)')
-                        ->icon(Heroicon::OutlinedBeaker)
-                        ->link()
-                        ->visible(fn (): bool => ! $this->restaurant()->squareConnected() && SquareApp::for(SquareEnvironment::Sandbox) !== null)
-                        ->url(fn (): string => route('square.connect', ['restaurant' => $this->restaurant(), 'environment' => SquareEnvironment::Sandbox->value])),
                     Action::make('checkSquare')
                         ->label('Check with Square')
                         ->icon(Heroicon::OutlinedShieldCheck)
                         ->link()
-                        ->visible(fn (): bool => $this->restaurant()->squareConnected())
+                        ->visible(fn (): bool => $this->restaurant()->squareConfigured())
                         ->action(fn () => $this->checkSquare()),
-                    Action::make('disconnectSquare')
-                        ->label('Disconnect')
-                        ->icon(Heroicon::OutlinedXMark)
-                        ->color('danger')
-                        ->link()
-                        ->visible(fn (): bool => $this->restaurant()->squareConnected())
-                        ->requiresConfirmation()
-                        ->modalHeading('Disconnect Square?')
-                        ->modalDescription('Customers can’t pay with Square until it’s connected again; if Stripe is set up, they pay with Stripe instead. Until then, orders already paid with Square can only be refunded in your Square dashboard.')
-                        ->modalSubmitActionLabel('Disconnect')
-                        ->action(fn () => $this->disconnectSquare()),
                 ])
                 ->schema([
                     TextEntry::make('square_account')
                         ->label('Account')
                         ->state(fn (): string => $this->squareAccountStatus())
                         ->columnSpanFull(),
+                    TextInput::make('square_application_id')
+                        ->label('Application ID')
+                        ->placeholder('sandbox-sq0idb-… or sq0idp-…')
+                        ->maxLength(255)
+                        ->rules([fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                            self::checkSquareApplicationId($value, $fail);
+                        }]),
+                    TextInput::make('square_access_token')
+                        ->label('Access token')
+                        ->password()
+                        ->revealable(false)
+                        ->placeholder(fn (): string => $this->savedPlaceholder('square_access_token', 'EAAA…'))
+                        ->helperText('From the same environment as the application ID. Never shown again once saved.')
+                        // Left empty, the saved token stays.
+                        ->dehydrated(fn (?string $state): bool => filled($state))
+                        ->maxLength(255)
+                        ->rules([fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                            self::checkSquareAccessToken($value, $fail);
+                        }]),
                     Select::make('square_location_id')
                         ->label('Location')
                         ->helperText(fn (): string => "The Square location payments go to. Only locations taking {$this->restaurant()->currency} are listed.")
                         ->options(fn (): array => $this->squareLocationOptions())
-                        ->visible(fn (): bool => $this->restaurant()->squareConnected()),
+                        ->visible(fn (): bool => $this->restaurant()->squareConfigured()),
+                    TextEntry::make('square_webhook_url')
+                        ->label('Webhook URL')
+                        ->state(fn (): string => SquareWebhookController::notificationUrl($this->restaurant()))
+                        ->helperText('In your Square application’s Webhooks (in the same environment), add a subscription with this URL and the events payment.created, payment.updated and refund.updated.')
+                        ->copyable(),
+                    TextInput::make('square_webhook_signature_key')
+                        ->label('Webhook signature key')
+                        ->password()
+                        ->revealable(false)
+                        ->placeholder(fn (): string => $this->savedPlaceholder('square_webhook_signature_key', 'From the subscription’s page in Square'))
+                        ->helperText('Recommended. Shown on the subscription’s page in Square.')
+                        ->dehydrated(fn (?string $state): bool => filled($state))
+                        ->maxLength(255),
                     TextEntry::make('square_wallets_status')
                         ->label('Apple Pay and Google Pay')
                         ->state(fn (): array => $this->squareWalletsChecklist())
                         ->listWithLineBreaks()
                         ->bulleted()
-                        ->visible(fn (): bool => $this->restaurant()->squareConnected())
+                        ->visible(fn (): bool => $this->restaurant()->squareConfigured())
                         ->columnSpanFull(),
                 ]),
 
@@ -318,7 +327,7 @@ class EditRestaurantSettings extends EditTenantProfile
     protected function mutateFormDataBeforeFill(array $data): array
     {
         // Secrets never go to the browser; the fields start empty and only replace them.
-        unset($data['stripe_secret_key'], $data['stripe_webhook_secret']);
+        unset($data['stripe_secret_key'], $data['stripe_webhook_secret'], $data['square_access_token'], $data['square_webhook_signature_key']);
 
         return $data;
     }
@@ -331,7 +340,7 @@ class EditRestaurantSettings extends EditTenantProfile
     {
         $data['address'] = [...(array) ($data['address'] ?? []), 'country' => 'AU'];
 
-        foreach (['stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret'] as $key) {
+        foreach (['stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'square_application_id', 'square_access_token', 'square_webhook_signature_key'] as $key) {
             if (array_key_exists($key, $data)) {
                 $data[$key] = filled($data[$key]) ? trim((string) $data[$key]) : null;
             }
@@ -344,14 +353,17 @@ class EditRestaurantSettings extends EditTenantProfile
      * After a save: if the processor in use can't take payments and the other one now can
      * (Stripe's keys are in, or a Square location was chosen), customers pay with that one.
      * Once the Stripe keys or the website's domain change, gets the Stripe account ready for
-     * Apple Pay and Google Pay (registering the domain) and keeps the answer for the checklist;
-     * a new domain is registered with Square too. Stripe and Square are asked after the save is
-     * committed, so the restaurant isn't kept locked while they answer.
+     * Apple Pay and Google Pay (registering the domain) and keeps the answer for the checklist.
+     * Once the Square credentials change, checks them with Square, loading the account's
+     * locations (choosing the only one) and registering the domain; a new domain is registered
+     * with Square too. Stripe and Square are asked after the save is committed, so the
+     * restaurant isn't kept locked while they answer.
      */
     protected function afterSave(): void
     {
         $restaurant = $this->restaurant();
         $stripeChanged = $restaurant->wasChanged(['stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'custom_domain']);
+        $squareChanged = $restaurant->wasChanged(['square_application_id', 'square_access_token']);
         $domainChanged = $restaurant->wasChanged('custom_domain');
 
         if ($restaurant->useReadyProcessor()) {
@@ -362,19 +374,24 @@ class EditRestaurantSettings extends EditTenantProfile
         }
 
         $checkStripe = $restaurant->acceptsPaymentsWith(PaymentProcessor::Stripe) && ($stripeChanged || $restaurant->walletSetup() === null);
-        $registerWithSquare = $domainChanged && $restaurant->squareConnected();
+        $checkSquare = $restaurant->squareConfigured() && ($squareChanged || $restaurant->square_merchant_name === null);
+        $registerWithSquare = ! $checkSquare && $domainChanged && $restaurant->squareConfigured();
 
-        if (! $checkStripe && ! $registerWithSquare) {
+        if (! $checkStripe && ! $checkSquare && ! $registerWithSquare) {
             return;
         }
 
-        DB::afterCommit(function () use ($checkStripe, $registerWithSquare): void {
+        DB::afterCommit(function () use ($checkStripe, $checkSquare, $registerWithSquare): void {
             if ($checkStripe && $this->refreshWallets() === null) {
                 Notification::make()
                     ->warning()
                     ->title('Apple Pay and Google Pay couldn’t be set up')
                     ->body('Stripe didn’t answer. Press “Check with Stripe” under Payments to try again: it checks your keys too.')
                     ->send();
+            }
+
+            if ($checkSquare) {
+                $this->checkSquare(quietly: true);
             }
 
             if ($registerWithSquare) {
@@ -405,10 +422,10 @@ class EditRestaurantSettings extends EditTenantProfile
 
         if ($restaurant->payment_processor === PaymentProcessor::Square) {
             return match (true) {
-                $restaurant->acceptsPayments() && $restaurant->square_environment === SquareEnvironment::Sandbox => 'Taking test payments into your Square sandbox account: pay with Square’s test cards, such as 4111 1111 1111 1111. Connect your live Square account to take real payments.',
-                $restaurant->acceptsPayments() => 'Taking payments into your Square account, live.',
-                $restaurant->squareConnected() => 'Not taking payments yet: choose the Square location payments go to. Until then customers can see the menu but can’t check out.',
-                default => 'Not taking payments yet: connect your Square account, or set up Stripe. Until then customers can see the menu but can’t check out.',
+                $restaurant->acceptsPayments() && $restaurant->squareEnvironment() === SquareEnvironment::Sandbox => 'Taking test payments into your Square sandbox account: pay with Square’s test cards, such as 4111 1111 1111 1111. Use your production credentials to take real payments.',
+                $restaurant->acceptsPayments() => 'Taking payments into your Square account.',
+                $restaurant->squareConfigured() => 'Not taking payments yet: choose the Square location payments go to. Until then customers can see the menu but can’t check out.',
+                default => 'Not taking payments yet: add your Square application ID and access token, or set up Stripe. Until then customers can see the menu but can’t check out.',
             };
         }
 
@@ -425,11 +442,7 @@ class EditRestaurantSettings extends EditTenantProfile
             'the webhook signing secret' => $restaurant->stripe_webhook_secret,
         ])->filter(fn (?string $value): bool => blank($value))->keys();
 
-        $orSquare = SquareApp::for(SquareEnvironment::Production) !== null || SquareApp::for(SquareEnvironment::Sandbox) !== null
-            ? ', or connect Square'
-            : '';
-
-        return 'Not taking payments yet: add '.$missing->join(', ', ' and ').$orSquare.'. Until then customers can see the menu but can’t check out.';
+        return 'Not taking payments yet: add '.$missing->join(', ', ' and ').', or set up Square. Until then customers can see the menu but can’t check out.';
     }
 
     private function canSwitchTo(PaymentProcessor $processor): bool
@@ -465,23 +478,21 @@ class EditRestaurantSettings extends EditTenantProfile
     {
         $restaurant = $this->restaurant();
 
-        if (SquareApp::for(SquareEnvironment::Production) === null && SquareApp::for(SquareEnvironment::Sandbox) === null) {
-            return 'Square isn’t available on this platform yet.';
+        if (! $restaurant->squareConfigured()) {
+            return 'Not set up. Enter your Square application’s ID and access token below.';
         }
 
-        if (! $restaurant->squareConnected() || $restaurant->square_environment === null) {
-            return 'Not connected. Press “Connect Square” to sign in to Square and approve: customers can then pay into your Square account.';
+        if ($restaurant->square_merchant_name === null) {
+            return 'Not checked yet: press “Check with Square”.';
         }
 
-        $account = $restaurant->square_merchant_name ?? 'your Square account';
-
-        return $restaurant->square_environment === SquareEnvironment::Sandbox
-            ? "Connected to {$account}: a Square sandbox account, for test payments."
-            : "Connected to {$account}.";
+        return $restaurant->squareEnvironment() === SquareEnvironment::Sandbox
+            ? "{$restaurant->square_merchant_name}, in Square’s sandbox: test payments only."
+            : "{$restaurant->square_merchant_name}.";
     }
 
     /**
-     * The connected account's locations that can take the restaurant's currency.
+     * The Square account's locations that can take the restaurant's currency.
      *
      * @return array<string, string>
      */
@@ -495,7 +506,12 @@ class EditRestaurantSettings extends EditTenantProfile
             ->all();
     }
 
-    private function checkSquare(): void
+    /**
+     * Checks the Square credentials with Square: loads the account's name and locations
+     * (choosing the only one) and registers the website for Apple Pay. Quietly, after a save,
+     * it only speaks up when something's wrong or customers now pay with Square.
+     */
+    private function checkSquare(bool $quietly = false): void
     {
         $restaurant = $this->restaurant();
         $processor = $restaurant->payment_processor;
@@ -505,44 +521,36 @@ class EditRestaurantSettings extends EditTenantProfile
         } catch (SquareConnectionLost) {
             Notification::make()
                 ->danger()
-                ->title('Square no longer accepts the connection')
-                ->body('Disconnect, then press “Connect Square” to connect your account again.')
+                ->title('Square didn’t accept the access token')
+                ->body('Copy it again from your Square application’s Credentials, from the same environment (sandbox or production) as the application ID, and save.')
                 ->send();
 
             return;
         } catch (PaymentsUnavailable) {
             Notification::make()
-                ->danger()
-                ->title('Square didn’t answer')
-                ->body('Try again in a moment.')
+                ->warning()
+                ->title('Square couldn’t be checked')
+                ->body('Square didn’t answer. Press “Check with Square” to try again.')
                 ->send();
 
             return;
         }
 
+        // Square may have chosen the location: show it, so the next save keeps it.
+        $this->form->fillPartially($this->mutateFormDataBeforeFill($restaurant->attributesToArray()), ['square_location_id']);
         $location = $this->squareLocationOptions()[$restaurant->square_location_id ?? ''] ?? null;
+        $switched = $restaurant->payment_processor !== $processor;
+
+        if ($quietly && ! $switched && $location !== null) {
+            return;
+        }
 
         Notification::make()
             ->success()
-            ->title('Your Square account is connected')
-            ->body(match (true) {
-                $location === null => 'Choose the location payments go to, and save.',
-                $restaurant->payment_processor !== $processor => "Payments go to {$location}. Customers now pay with Square.",
-                default => "Payments go to {$location}.",
-            })
-            ->send();
-    }
-
-    private function disconnectSquare(): void
-    {
-        $restaurant = $this->restaurant();
-
-        app(SquareAccountService::class)->disconnect($restaurant);
-
-        Notification::make()
-            ->success()
-            ->title('Square is disconnected')
-            ->body($restaurant->acceptsPayments() ? "Customers pay with {$restaurant->payment_processor->getLabel()}." : 'Customers can’t pay online until Stripe is set up or Square is connected again.')
+            ->title($switched ? 'Customers now pay with Square' : 'Your Square credentials work')
+            ->body($location === null
+                ? 'Now choose the location payments go to, and save.'
+                : "Payments go to {$restaurant->square_merchant_name}, {$location}.")
             ->send();
     }
 
@@ -744,6 +752,40 @@ class EditRestaurantSettings extends EditTenantProfile
             $fail('That’s the publishable key. The secret key starts with sk_ (or rk_ for a restricted key).');
         } elseif (preg_match('/^(sk|rk)_(test|live)_\S+$/', $value) !== 1) {
             $fail('The secret key starts with sk_test_ (test mode) or sk_live_ (live mode), or rk_ for a restricted key.');
+        }
+    }
+
+    /** A Square application ID: sandbox-sq0idb-… for test payments, sq0idp-… for real ones. */
+    private static function checkSquareApplicationId(mixed $value, Closure $fail): void
+    {
+        if (blank($value)) {
+            return;
+        }
+
+        $value = trim((string) $value);
+
+        if (str_starts_with($value, 'EAAA')) {
+            $fail('That’s the access token: paste it under “Access token”. The application ID starts with sandbox-sq0idb- or sq0idp-.');
+        } elseif (preg_match('/^(sandbox-sq0csb-|sq0csp-)/', $value) === 1) {
+            $fail('That’s the application secret, which isn’t needed here. The application ID starts with sandbox-sq0idb- or sq0idp-.');
+        } elseif (preg_match('/^(sandbox-sq0idb-|sq0idp-)\S+$/', $value) !== 1) {
+            $fail('The application ID starts with sandbox-sq0idb- (sandbox) or sq0idp- (production).');
+        }
+    }
+
+    /** A Square access token: EAAA…, from the same Credentials page as the application ID. */
+    private static function checkSquareAccessToken(mixed $value, Closure $fail): void
+    {
+        if (blank($value)) {
+            return;
+        }
+
+        $value = trim((string) $value);
+
+        if (preg_match('/^(sandbox-)?sq0/', $value) === 1) {
+            $fail('That’s the application ID or secret. The access token starts with EAAA.');
+        } elseif (preg_match('/^EAAA\S+$/', $value) !== 1) {
+            $fail('The access token starts with EAAA.');
         }
     }
 

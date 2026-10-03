@@ -226,11 +226,11 @@ it('still opens when a saved secret can’t be decrypted, and asks for it again'
 
     $this->get("/admin/{$this->restaurant->slug}/profile")
         ->assertOk()
-        ->assertSee('Not taking payments yet: add the secret key and the webhook signing secret, or connect Square.');
+        ->assertSee('Not taking payments yet: add the secret key and the webhook signing secret, or set up Square.');
 
     DB::table('restaurants')->where('id', $this->restaurant->id)->update(['stripe_publishable_key' => 'NULL']);
 
     $this->get("/admin/{$this->restaurant->slug}/profile")
         ->assertOk()
-        ->assertSee('Not taking payments yet: add the publishable key, the secret key and the webhook signing secret, or connect Square.');
+        ->assertSee('Not taking payments yet: add the publishable key, the secret key and the webhook signing secret, or set up Square.');
 });

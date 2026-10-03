@@ -1,7 +1,6 @@
 <?php
 
 use App\Enums\PaymentProcessor;
-use App\Enums\SquareEnvironment;
 use App\Models\Restaurant;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,19 +38,17 @@ pest()->extend(TestCase::class)
 */
 
 /**
- * Connect the restaurant's (fake) Square sandbox account, at its one AUD location, and take
- * payments with Square.
+ * Give the restaurant its own (fake) Square sandbox application's credentials and webhook
+ * signature key, checked, at its one AUD location, and take payments with Square.
  */
-function connectSquare(Restaurant $restaurant, string $merchantId = 'MSQUARE123'): Restaurant
+function setUpSquare(Restaurant $restaurant): Restaurant
 {
     $restaurant->forceFill([
         'payment_processor' => PaymentProcessor::Square,
-        'square_environment' => SquareEnvironment::Sandbox,
-        'square_merchant_id' => $merchantId,
-        'square_merchant_name' => 'Momo House on Square',
+        'square_application_id' => 'sandbox-sq0idb-test-app',
         'square_access_token' => 'EAAA-token',
-        'square_refresh_token' => 'EQAA-token',
-        'square_token_expires_at' => now()->addDays(30),
+        'square_webhook_signature_key' => 'test-square-signature-key',
+        'square_merchant_name' => 'Momo House on Square',
         'square_location_id' => 'LMAIN',
         'square_locations' => [['id' => 'LMAIN', 'name' => 'Main Street', 'currency' => 'AUD', 'active' => true]],
     ])->save();

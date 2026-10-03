@@ -7,7 +7,7 @@ export interface StripeSettings {
 
 export interface SquareSettings {
   processor: 'square';
-  /** The platform's Square application. */
+  /** The restaurant's own Square application. */
   applicationId: string;
   /** The restaurant's Square location, where payments go. */
   locationId: string;

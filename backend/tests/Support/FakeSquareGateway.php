@@ -6,8 +6,6 @@ use App\Models\Order;
 use App\Models\Restaurant;
 use App\Payments\PaymentDeclined;
 use App\Payments\PaymentsUnavailable;
-use App\Payments\Square\SquareApp;
-use App\Payments\Square\SquareConnection;
 use App\Payments\Square\SquareConnectionLost;
 use App\Payments\Square\SquareGateway;
 use App\Payments\Square\SquareLocation;
@@ -35,34 +33,24 @@ final class FakeSquareGateway implements SquareGateway
     /** Makes the next call fail, as if Square were down. */
     public bool $failNext = false;
 
+    /** Square doesn't accept the access token (wrong, or replaced in Square's console). */
+    public bool $rejectToken = false;
+
     /** A Square decline code (CARD_DECLINED, say) for the next charge. */
     public ?string $declineNext = null;
 
     /** The status new payments get. */
     public string $paymentStatus = 'COMPLETED';
 
-    public string $merchantId = 'MSQUARE123';
-
     public string $merchantName = 'Momo House on Square';
 
     /** @var list<SquareLocation> */
     public array $locations;
 
-    /** @var list<string> codes swapped for tokens */
-    public array $codes = [];
-
     /** @var list<string> domains registered for Apple Pay */
     public array $domains = [];
 
     public bool $domainsVerified = true;
-
-    public int $refreshes = 0;
-
-    /** @var list<string> merchants whose refresh token Square refuses, as after a revocation */
-    public array $refuseRefreshFor = [];
-
-    /** @var list<string> merchants whose access was revoked */
-    public array $revoked = [];
 
     public function __construct()
     {
@@ -75,33 +63,6 @@ final class FakeSquareGateway implements SquareGateway
         app()->instance(SquareGateway::class, $fake);
 
         return $fake;
-    }
-
-    public function exchangeCode(SquareApp $app, string $code): SquareConnection
-    {
-        $this->failIfAsked();
-        $this->codes[] = $code;
-
-        return new SquareConnection($this->merchantId, 'EAAA-'.Str::random(20), 'EQAA-'.Str::random(20), CarbonImmutable::now()->addDays(30));
-    }
-
-    public function refresh(Restaurant $restaurant): SquareConnection
-    {
-        $this->failIfAskedFor($restaurant);
-
-        if (in_array($restaurant->square_merchant_id, $this->refuseRefreshFor, true)) {
-            throw SquareConnectionLost::from(new RuntimeException('The refresh token was revoked.'));
-        }
-
-        $this->refreshes++;
-
-        return new SquareConnection((string) $restaurant->square_merchant_id, 'EAAA-renewed-'.$this->refreshes, (string) $restaurant->square_refresh_token, CarbonImmutable::now()->addDays(30));
-    }
-
-    public function revoke(Restaurant $restaurant): void
-    {
-        $this->failIfAskedFor($restaurant);
-        $this->revoked[] = (string) $restaurant->square_merchant_id;
     }
 
     public function merchantName(Restaurant $restaurant): string
@@ -162,17 +123,17 @@ final class FakeSquareGateway implements SquareGateway
         return $this->refunds[$idempotencyKey] ??= 'sqref_'.Str::random(20);
     }
 
+    /** Like the real gateway: no credentials, no Square; and the call can be made to fail. */
     private function failIfAskedFor(Restaurant $restaurant): void
     {
-        if (blank($restaurant->square_access_token)) {
+        if (! $restaurant->squareConfigured()) {
             throw PaymentsUnavailable::notConfigured();
         }
 
-        $this->failIfAsked();
-    }
+        if ($this->rejectToken) {
+            throw SquareConnectionLost::from(new RuntimeException('UNAUTHORIZED'));
+        }
 
-    private function failIfAsked(): void
-    {
         if ($this->failNext) {
             $this->failNext = false;
 

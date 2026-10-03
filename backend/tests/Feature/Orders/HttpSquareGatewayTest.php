@@ -1,12 +1,10 @@
 <?php
 
-use App\Enums\SquareEnvironment;
 use App\Models\Order;
 use App\Models\Restaurant;
 use App\Payments\PaymentDeclined;
 use App\Payments\PaymentsUnavailable;
 use App\Payments\Square\HttpSquareGateway;
-use App\Payments\Square\SquareApp;
 use App\Payments\Square\SquareConnectionLost;
 use App\Payments\Square\SquareLocation;
 use App\Payments\Square\SquarePayment;
@@ -14,7 +12,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
-    $this->restaurant = connectSquare(Restaurant::factory()->create());
+    $this->restaurant = setUpSquare(Restaurant::factory()->create());
     $this->order = Order::factory()->for($this->restaurant)->square()->create(['total_cents' => 2390, 'customer_email' => 'asha@example.com']);
     $this->gateway = new HttpSquareGateway;
 });
@@ -65,7 +63,7 @@ it('tries again when Square has a fault, and says it’s unavailable if it lasts
         ->toThrow(PaymentsUnavailable::class);
 });
 
-it('says the connection is lost when Square no longer accepts the token', function () {
+it('says Square didn’t accept the access token', function () {
     Http::fake([SQUARE_SANDBOX.'/v2/locations' => Http::response(['errors' => [['category' => 'AUTHENTICATION_ERROR', 'code' => 'UNAUTHORIZED']]], 401)]);
 
     expect(fn () => $this->gateway->locations($this->restaurant))->toThrow(SquareConnectionLost::class);
@@ -82,37 +80,7 @@ it('refunds the order’s payment in full', function () {
         && $request['amount_money'] === ['amount' => 2390, 'currency' => 'AUD']);
 });
 
-it('connects with the code from Square, and renews and revokes the tokens', function () {
-    Http::fake([
-        SQUARE_SANDBOX.'/oauth2/token' => Http::sequence()
-            ->push(['access_token' => 'EAAA-new', 'refresh_token' => 'EQAA-new', 'expires_at' => '2026-11-02T00:00:00Z', 'merchant_id' => 'MSQUARE123'])
-            ->push(['access_token' => 'EAAA-renewed', 'refresh_token' => 'EQAA-new', 'expires_at' => '2026-11-09T00:00:00Z', 'merchant_id' => 'MSQUARE123'])
-            ->push(['errors' => [['category' => 'AUTHENTICATION_ERROR', 'code' => 'UNAUTHORIZED']]], 401),
-        SQUARE_SANDBOX.'/oauth2/revoke' => Http::response(['success' => true]),
-    ]);
-    $app = SquareApp::for(SquareEnvironment::Sandbox);
-
-    $connection = $this->gateway->exchangeCode($app, 'sq0cgp-code');
-
-    expect($connection->accessToken)->toBe('EAAA-new')
-        ->and($connection->merchantId)->toBe('MSQUARE123')
-        ->and($connection->expiresAt->toIso8601ZuluString())->toBe('2026-11-02T00:00:00Z')
-        ->and($this->gateway->refresh($this->restaurant)->accessToken)->toBe('EAAA-renewed')
-        ->and(fn () => $this->gateway->refresh($this->restaurant))->toThrow(SquareConnectionLost::class);
-
-    $this->gateway->revoke($this->restaurant);
-
-    Http::assertSent(fn (Request $request): bool => $request->url() === SQUARE_SANDBOX.'/oauth2/token'
-        && $request['grant_type'] === 'authorization_code'
-        && $request['client_id'] === 'sandbox-sq0idb-test-app'
-        && $request['client_secret'] === 'sandbox-sq0csb-test-secret'
-        && $request['code'] === 'sq0cgp-code');
-    Http::assertSent(fn (Request $request): bool => $request->url() === SQUARE_SANDBOX.'/oauth2/revoke'
-        && $request->hasHeader('Authorization', 'Client sandbox-sq0csb-test-secret')
-        && $request['access_token'] === 'EAAA-token');
-});
-
-it('reads the account’s name and locations', function () {
+it('reads the account’s name and locations, in the environment of its application ID', function () {
     Http::fake([
         SQUARE_SANDBOX.'/v2/merchants/me' => Http::response(['merchant' => ['id' => 'MSQUARE123', 'business_name' => 'Momo House']]),
         SQUARE_SANDBOX.'/v2/locations' => Http::response(['locations' => [
@@ -126,6 +94,12 @@ it('reads the account’s name and locations', function () {
             new SquareLocation('LMAIN', 'Main Street', 'AUD', true),
             new SquareLocation('LOLD', 'Old shop', 'AUD', false),
         ]);
+
+    // Production credentials go to Square's production host.
+    Http::fake(['https://connect.squareup.com/v2/merchants/me' => Http::response(['merchant' => ['business_name' => 'Momo House Live']])]);
+    $this->restaurant->forceFill(['square_application_id' => 'sq0idp-live-app'])->save();
+
+    expect($this->gateway->merchantName($this->restaurant))->toBe('Momo House Live');
 });
 
 it('registers the website for Apple Pay, and says why Square refused it', function () {
