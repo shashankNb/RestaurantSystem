@@ -9,6 +9,7 @@ use App\Data\Quote;
 use App\Data\QuoteLine;
 use App\Enums\FulfilmentType;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentProcessor;
 use App\Models\ModifierOption;
 use App\Models\Order;
 use App\Models\Restaurant;
@@ -23,8 +24,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Turns a cart into an order waiting for payment, with a Stripe PaymentIntent for the
- * server's total.
+ * Turns a cart into an order waiting for payment, paid with the restaurant's processor:
+ * with Stripe, through a PaymentIntent for the server's total; with Square, by the token
+ * the app sends next (SquareCheckoutService). The order keeps its processor even if the
+ * restaurant switches.
  *
  * Every request carries an Idempotency-Key. Sending the same request again (a retry after
  * a timeout, a double tap) returns the original order and PaymentIntent instead of a new
@@ -59,8 +62,8 @@ final class CheckoutService
             return $this->resume($existing, $fingerprint);
         }
 
-        // Paid into the restaurant's own Stripe account: until its keys are in, no order is
-        // started that couldn't be paid for.
+        // Paid into the restaurant's own Stripe or Square account: until it's set up, no order
+        // is started that couldn't be paid for.
         if (! $restaurant->acceptsPayments()) {
             throw PaymentsUnavailable::notConfigured();
         }
@@ -78,7 +81,7 @@ final class CheckoutService
             return $this->resume(Order::query()->where('idempotency_key', $key)->firstOrFail(), $fingerprint);
         }
 
-        return new Checkout($order, $this->attachPaymentIntent($order), created: true);
+        return new Checkout($order, $this->paymentIntentFor($order), created: true);
     }
 
     private function resume(Order $order, string $fingerprint): Checkout
@@ -87,11 +90,18 @@ final class CheckoutService
             throw CheckoutException::keyReused();
         }
 
-        $paymentIntent = $order->stripe_payment_intent_id === null
+        return new Checkout($order, $this->paymentIntentFor($order), created: false);
+    }
+
+    private function paymentIntentFor(Order $order): ?PaymentIntent
+    {
+        if ($order->payment_processor !== PaymentProcessor::Stripe) {
+            return null;
+        }
+
+        return $order->stripe_payment_intent_id === null
             ? $this->attachPaymentIntent($order)
             : $this->payments->retrievePaymentIntent($order->loadMissing('restaurant'));
-
-        return new Checkout($order, $paymentIntent, created: false);
     }
 
     /**
@@ -129,6 +139,7 @@ final class CheckoutService
 
             $order = $restaurant->orders()->create([
                 'user_id' => $user?->id,
+                'payment_processor' => $restaurant->payment_processor,
                 'fulfilment_type' => $quote->cart->fulfilmentType,
                 'scheduled_for' => $quote->cart->scheduledFor,
                 'customer_name' => $customer->name,

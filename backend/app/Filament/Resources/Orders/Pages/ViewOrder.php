@@ -46,7 +46,7 @@ class ViewOrder extends ViewRecord
                     app(OrderService::class)->refund($record, $owner, trim((string) $data['reason']));
 
                     Notification::make()
-                        ->title('Refund sent to Stripe')
+                        ->title("Refund sent to {$record->payment_processor->getLabel()}")
                         ->body('It usually shows on the customer’s statement within 5 to 10 business days.')
                         ->success()
                         ->send();

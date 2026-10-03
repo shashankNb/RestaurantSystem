@@ -6,8 +6,9 @@ House**, a fictional Nepalese takeaway in Melbourne.
 
 - **Customers** order on iOS, Android or the web: the menu with photos, options and sold-out
   dishes, pickup, delivery or dine in (from a QR code on the table), now or for later, and
-  payment by card, Apple Pay or Google Pay. They follow the order live, with push
-  notifications, and can keep an account with saved addresses and past orders.
+  payment by card, Apple Pay or Google Pay, into the restaurant's own Stripe or Square
+  account. They follow the order live, with push notifications, and can keep an account with
+  saved addresses and past orders.
 - **The kitchen** works from a tablet: new orders arrive with an alert, staff accept them with
   a prep time or reject them with a reason, move them along, pause online orders and mark
   dishes sold out.
@@ -23,7 +24,7 @@ House**, a fictional Nepalese takeaway in Melbourne.
 | `app/` | Expo app (SDK 57): customer ordering on iOS, Android and the web, plus the kitchen screens |
 | `docs/` | [Spec](docs/SPEC.md), [setup](docs/SETUP.md), [adding a restaurant](docs/ADDING_A_RESTAURANT.md), [API](docs/API.md), [design](docs/DESIGN.md) and [decisions](docs/DECISIONS.md) |
 
-Built with Laravel, MySQL, Sanctum, Reverb, Stripe and Filament on the backend, and Expo
+Built with Laravel, MySQL, Sanctum, Reverb, Stripe, Square and Filament on the backend, and Expo
 Router, NativeWind with Moe UI, TanStack Query, Zustand and React Hook Form with Zod in the
 app.
 

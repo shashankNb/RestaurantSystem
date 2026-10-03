@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Enums\PaymentProcessor;
+use App\Enums\SquareEnvironment;
 use App\Models\Restaurant;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
@@ -46,7 +48,27 @@ class RestaurantFactory extends Factory
             'stripe_publishable_key' => 'pk_test_'.Str::random(24),
             'stripe_secret_key' => 'sk_test_'.Str::random(24),
             'stripe_webhook_secret' => 'whsec_test_secret',
+            'payment_processor' => PaymentProcessor::Stripe,
         ];
+    }
+
+    /**
+     * Taking payments with its own Square account, connected in the sandbox to the platform's
+     * Square application (tests fake Square), at its only location.
+     */
+    public function square(): static
+    {
+        return $this->state([
+            'payment_processor' => PaymentProcessor::Square,
+            'square_environment' => SquareEnvironment::Sandbox,
+            'square_merchant_id' => 'M'.Str::upper(Str::random(12)),
+            'square_merchant_name' => 'Kitchen on Square',
+            'square_access_token' => 'EAAA'.Str::random(40),
+            'square_refresh_token' => 'EQAA'.Str::random(40),
+            'square_token_expires_at' => now()->addDays(30),
+            'square_location_id' => 'LMAIN',
+            'square_locations' => [['id' => 'LMAIN', 'name' => 'Main Street', 'currency' => 'AUD', 'active' => true]],
+        ]);
     }
 
     /** No Stripe keys yet: the restaurant can't take payments. */

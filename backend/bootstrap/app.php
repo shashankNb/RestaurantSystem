@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AllowRestaurantOrigins;
+use App\Payments\PaymentDeclined;
 use App\Payments\PaymentsUnavailable;
 use App\Services\InvalidOrderTransition;
 use Illuminate\Foundation\Application;
@@ -39,6 +40,15 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (NotFoundHttpException $exception, Request $request) {
             if ($request->is('api/*')) {
                 return response()->json(['message' => 'Not found.'], 404);
+            }
+
+            return null;
+        });
+
+        // The customer's card or wallet was declined: the message says what to do.
+        $exceptions->render(function (PaymentDeclined $exception, Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json(['message' => $exception->getMessage()], 402);
             }
 
             return null;

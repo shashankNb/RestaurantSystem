@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Orders\Schemas;
 
 use App\Enums\FulfilmentType;
+use App\Enums\PaymentProcessor;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemModifier;
@@ -176,14 +177,28 @@ class OrderInfolist
                 Section::make('Payment')
                     ->columnSpan(1)
                     ->schema([
+                        TextEntry::make('payment_processor')
+                            ->label('Paid with'),
                         TextEntry::make('stripe_payment_intent_id')
                             ->label('Stripe payment')
                             ->copyable()
-                            ->placeholder('—'),
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => $record->payment_processor === PaymentProcessor::Stripe),
                         TextEntry::make('stripe_refund_id')
                             ->label('Stripe refund')
                             ->copyable()
-                            ->placeholder('—'),
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => $record->payment_processor === PaymentProcessor::Stripe),
+                        TextEntry::make('square_payment_id')
+                            ->label('Square payment')
+                            ->copyable()
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => $record->payment_processor === PaymentProcessor::Square),
+                        TextEntry::make('square_refund_id')
+                            ->label('Square refund')
+                            ->copyable()
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => $record->payment_processor === PaymentProcessor::Square),
                         TextEntry::make('refunded_at')
                             ->label('Refunded')
                             ->dateTime('D j M, g:i a')

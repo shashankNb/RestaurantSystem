@@ -35,6 +35,7 @@ import { randomId } from '@/lib/random-id';
 import { useRecentOrders } from '@/orders/recent-orders';
 import { PaymentForm } from '@/payments/PaymentForm';
 import type { PaymentRequest } from '@/payments/types';
+import { usePaymentSettings } from '@/payments/use-payment-settings';
 
 const contact = {
   name: z.string().trim().min(1, 'Enter your name so the restaurant knows whose order it is.').max(255, 'Use 255 characters or fewer.'),
@@ -140,6 +141,7 @@ function CheckoutScreen() {
 function CheckoutForm({ user, onCompleting }: { user: User | undefined; onCompleting: () => void }) {
   const queryClient = useQueryClient();
   const { data: restaurant } = useRestaurant();
+  const paymentSettings = usePaymentSettings();
   const lines = useCart((state) => state.lines);
   const fulfilment = useCart((state) => state.fulfilment);
   const postcode = useCart((state) => state.postcode);
@@ -272,11 +274,19 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
 
     placed.current = checkout;
 
-    return {
-      clientSecret: checkout.payment.client_secret,
-      returnPath: `/order/${encodeURIComponent(checkout.order.public_id)}?token=${encodeURIComponent(checkout.tracking_token)}`,
-      billing: { name: values.name, email: values.email, phone: values.phone },
-    };
+    const returnPath = `/order/${encodeURIComponent(checkout.order.public_id)}?token=${encodeURIComponent(checkout.tracking_token)}`;
+    const billing = { name: values.name, email: values.email, phone: values.phone };
+
+    return checkout.payment.processor === 'stripe'
+      ? { processor: 'stripe', clientSecret: checkout.payment.client_secret, returnPath, billing }
+      : { processor: 'square', orderId: checkout.order.public_id, trackingToken: checkout.tracking_token, returnPath, billing };
+  };
+
+  // Who's paying, for Square's card check.
+  const payer = () => {
+    const values = form.getValues();
+
+    return { name: values.name, email: values.email, phone: values.phone };
   };
 
   const showPlaceError = (error: unknown) => {
@@ -505,13 +515,15 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
               merchantName={restaurant?.name ?? 'Restaurant'}
               disabled={!ready || placeOrder.isPending}
               validate={validate}
+              contact={payer}
               createPayment={createPayment}
               onPaid={onPaid}
               onError={(message) => setProblem({ message, inCart: false })}
             />
           ) : null}
           <Text variant="muted">
-            Payments are handled by Stripe. We never see your card details.
+            Payments are handled by {paymentSettings?.processor === 'square' ? 'Square' : 'Stripe'}. We never see your card
+            details.
           </Text>
         </Section>
       </ScrollView>

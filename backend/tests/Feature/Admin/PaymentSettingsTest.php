@@ -94,7 +94,7 @@ it('checks the keys with Stripe, and how ready Apple Pay and Google Pay are', fu
     $payments = app(PaymentGateway::class);
 
     Livewire::test(EditRestaurantSettings::class)
-        ->callAction(TestAction::make('checkStripeKeys')->schemaComponent('payments'))
+        ->callAction(TestAction::make('checkStripeKeys')->schemaComponent('stripe'))
         ->assertNotified('Your Stripe keys work');
 
     expect($payments->domains)->toBe(['order.momohouse.com.au'])
@@ -103,7 +103,7 @@ it('checks the keys with Stripe, and how ready Apple Pay and Google Pay are', fu
     $payments->failNext = true;
 
     Livewire::test(EditRestaurantSettings::class)
-        ->callAction(TestAction::make('checkStripeKeys')->schemaComponent('payments'))
+        ->callAction(TestAction::make('checkStripeKeys')->schemaComponent('stripe'))
         ->assertNotified('Stripe didn’t accept the secret key');
 });
 
@@ -191,12 +191,12 @@ it('turns on Apple Pay and Google Pay in the restaurant’s Stripe account, when
     $this->restaurant->update(['stripe_publishable_key' => 'pk_test_51Abc', 'stripe_secret_key' => 'sk_test_51Def', 'stripe_webhook_secret' => 'whsec_ghi']);
     /** @var FakePaymentGateway $payments */
     $payments = app(PaymentGateway::class);
-    $turnOn = TestAction::make('turnOnWallets')->schemaComponent('payments');
+    $turnOn = TestAction::make('turnOnWallets')->schemaComponent('stripe');
 
     // Filament leaves a hidden header action out of the section altogether.
     $page = Livewire::test(EditRestaurantSettings::class)
         ->assertActionDoesNotExist($turnOn)
-        ->callAction(TestAction::make('checkStripeKeys')->schemaComponent('payments'))
+        ->callAction(TestAction::make('checkStripeKeys')->schemaComponent('stripe'))
         ->assertActionVisible($turnOn);
 
     expect($payments->turnOnCalls)->toBe(0);
@@ -226,11 +226,11 @@ it('still opens when a saved secret can’t be decrypted, and asks for it again'
 
     $this->get("/admin/{$this->restaurant->slug}/profile")
         ->assertOk()
-        ->assertSee('Not taking payments yet: add the secret key and the webhook signing secret.');
+        ->assertSee('Not taking payments yet: add the secret key and the webhook signing secret, or connect Square.');
 
     DB::table('restaurants')->where('id', $this->restaurant->id)->update(['stripe_publishable_key' => 'NULL']);
 
     $this->get("/admin/{$this->restaurant->slug}/profile")
         ->assertOk()
-        ->assertSee('Not taking payments yet: add the publishable key, the secret key and the webhook signing secret.');
+        ->assertSee('Not taking payments yet: add the publishable key, the secret key and the webhook signing secret, or connect Square.');
 });

@@ -41,6 +41,7 @@ it('creates an order waiting for payment, with a PaymentIntent for the server’
         ->and($order->order_number)->toBeNull()
         ->and($intent->amountCents)->toBe(3822)
         ->and($response->json('data.payment'))->toBe([
+            'processor' => 'stripe',
             'payment_intent_id' => $intent->id,
             'client_secret' => $intent->clientSecret,
             'status' => 'requires_payment_method',

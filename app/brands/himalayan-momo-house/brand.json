@@ -6,6 +6,7 @@
   "scheme": "himalayanmomohouse",
   "bundleId": "au.com.examplerestaurant.ordering",
   "appleMerchantId": "merchant.au.com.examplerestaurant.ordering",
+  "squareAppleMerchantId": "merchant.au.com.examplerestaurant.ordering.square",
   "brandColor": "#7A1F2B",
   "webUrl": "https://example-restaurant.com.au"
 }

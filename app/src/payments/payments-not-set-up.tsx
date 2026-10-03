@@ -7,7 +7,8 @@ import { Text } from '@/components/ui/text';
 
 /**
  * Shown in place of the payment form while the restaurant can't take payments online: its
- * owner hasn't entered all its Stripe keys yet (back office, Restaurant settings → Payments).
+ * owner hasn't entered all its Stripe keys or connected its Square account yet (back office,
+ * Restaurant settings → Payments).
  */
 export function PaymentsNotSetUp() {
   return (

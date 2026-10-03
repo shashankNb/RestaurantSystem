@@ -23,6 +23,13 @@ interface Brand {
   bundleId: string;
   /** Apple Pay: the merchant ID registered with Apple and in the restaurant's Stripe account. */
   appleMerchantId: string;
+  /**
+   * Apple Pay with Square: the platform's Square merchant ID, the same for every brand, with
+   * its certificate in the platform's Square application. An Apple merchant ID can only serve
+   * one payment processor, so it's not the Stripe one. Leave it out for Apple Pay with Stripe
+   * only.
+   */
+  squareAppleMerchantId?: string;
   /** For the Android icon's background and the notification icon. */
   brandColor: string;
   /** The restaurant's website, for canonical links, share links and the sitemap. */
@@ -91,8 +98,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     [
       "@stripe/stripe-react-native",
-      { merchantIdentifier: brand.appleMerchantId, enableGooglePay: true },
+      {
+        // Both merchant IDs go in the app's Apple Pay entitlement.
+        merchantIdentifier: [brand.appleMerchantId, brand.squareAppleMerchantId].filter(
+          (id): id is string => Boolean(id),
+        ),
+        enableGooglePay: true,
+      },
     ],
+    // Square's card form, Apple Pay and Google Pay, for restaurants that take payments with
+    // Square. Its "Pay" button in the brand colour on Android.
+    [
+      "react-native-square-in-app-payments",
+      { cardEntryStyle: { saveButtonStyle: { backgroundColor: brand.brandColor } } },
+    ],
+    // The Kotlin that Square's plugin pins, for Expo's modules too.
+    ["./plugins/with-kotlin-version", { version: "2.2.21" }],
     // Order updates. Android tints the notification icon with the brand colour.
     ["expo-notifications", { color: brand.brandColor }],
     // The kitchen's new-order alert: playback only, while the app is open. No microphone.
@@ -119,6 +140,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       brandColor: brand.brandColor,
     },
     appleMerchantId: brand.appleMerchantId,
+    squareAppleMerchantId: brand.squareAppleMerchantId ?? null,
     // Builds, hosting and push notifications need the EAS project (see docs/SETUP.md).
     ...(brand.easProjectId ? { eas: { projectId: brand.easProjectId } } : {}),
   },

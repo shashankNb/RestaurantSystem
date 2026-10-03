@@ -54,7 +54,9 @@ failures (HTTP 422).
 | [`POST /restaurants/{slug}/orders/quote`](#post-restaurantsslugordersquote) | Public, 60 a minute | Built (phase 2) |
 | [`POST /restaurants/{slug}/orders`](#post-restaurantsslugorders) | Public, `Idempotency-Key` header, 10 a minute | Built (phase 3) |
 | [`GET /orders/{public_id}?token=…`](#get-orderspublic_idtoken) | Tracking token, or the customer | Built (phase 3) |
+| [`POST /orders/{public_id}/square-payment`](#post-orderspublic_idsquare-payment) | Tracking token, `Idempotency-Key` header, 10 a minute | Built (Square) |
 | [`POST /stripe/webhook/{slug}`](#post-stripewebhookslug) | Stripe (signature verified) | Built (phase 3; one per restaurant since phase 7) |
+| [`POST /square/webhook/{environment}`](#post-squarewebhookenvironment) | Square (signature verified) | Built (Square) |
 | [`POST /auth/register`](#post-authregister) | Public | Built (phase 4) |
 | [`POST /auth/login`](#post-authlogin) | Public | Built (phase 4) |
 | [`POST /auth/logout`](#post-authlogout) | Signed in | Built (phase 4) |
@@ -139,7 +141,7 @@ Accept: application/json
         "special_hours": [
             { "date": "2026-10-20", "is_closed": false, "opens_at": "12:00", "closes_at": "15:00", "note": "Lunch only" }
         ],
-        "payments": { "stripe_publishable_key": "pk_live_51…" }
+        "payments": { "processor": "stripe", "stripe_publishable_key": "pk_live_51…", "square": null }
     }
 }
 ```
@@ -158,9 +160,15 @@ Accept: application/json
   6 for Saturday. A day can have several shifts.
 - `special_hours`: holidays and one-off changes in the next 30 days. `is_closed` is true
   for a closure, with null times.
-- `payments.stripe_publishable_key`: the restaurant's own Stripe account, for the apps'
-  payment forms. Null until its owner has entered all its keys in the back office; until then
-  placing an order answers `503`.
+- `payments.processor`: how customers pay, `stripe` or `square`, as the owner chose in the back
+  office.
+- `payments.stripe_publishable_key`: with Stripe, the restaurant's own Stripe account, for the
+  apps' payment forms. Null until its owner has entered all its keys in the back office.
+- `payments.square`: with Square, `{"application_id": "sq0idp-…", "location_id": "L…",
+  "environment": "production"}`: the platform's Square application, the restaurant's Square
+  location, and `sandbox` or `production`. Null until its owner has connected Square and chosen
+  the location.
+- Until the processor in use is set up, placing an order answers `503`.
 
 `404` `{"message": "Not found."}` for an unknown slug.
 
@@ -423,10 +431,17 @@ postcode for delivery, a quantity outside 1–50, and so on.
 
 ## Orders and payments
 
-An order starts as `pending_payment` with a Stripe PaymentIntent for the server's total. The
-app completes the payment with the client secret (PaymentSheet on iOS and Android, the
-Payment Element on the web). Only Stripe's webhook marks the order paid and sends it to the
-kitchen as `placed`, with its daily number. The lifecycle:
+An order starts as `pending_payment`, paid with the restaurant's processor at that moment (the
+order keeps it, for its refund too):
+
+- **Stripe:** the order comes with a PaymentIntent for the server's total. The app completes the
+  payment with the client secret (PaymentSheet on iOS and Android, the Payment Element on the
+  web), and Stripe's webhook marks the order paid.
+- **Square:** the app gets a token from Square's payment form (card, Apple Pay or Google Pay)
+  and sends it to [`/orders/{public_id}/square-payment`](#post-orderspublic_idsquare-payment),
+  which charges it while the customer waits.
+
+Once paid, the order goes to the kitchen as `placed`, with its daily number. The lifecycle:
 
 ```
 pending_payment → placed → accepted → preparing → ready → (out_for_delivery) → completed
@@ -485,6 +500,7 @@ Authorization: Bearer 3|kD8sX…          (optional: links the order to the acco
         "order": { "public_id": "01k6b2x0v8r5c9m3t7w4y1z6qe", "order_number": null, "status": "pending_payment", "…": "as in GET /orders/{public_id}" },
         "tracking_token": "Gs3kq9…",
         "payment": {
+            "processor": "stripe",
             "payment_intent_id": "pi_3Q…",
             "client_secret": "pi_3Q…_secret_…",
             "status": "requires_payment_method",
@@ -495,7 +511,11 @@ Authorization: Bearer 3|kD8sX…          (optional: links the order to the acco
 }
 ```
 
-Keep `tracking_token`: it's how a guest follows the order. Retries are safe:
+With Square, `payment` is just `{"processor": "square", "amount_cents": 4182, "currency": "aud"}`:
+pay it next with [`/orders/{public_id}/square-payment`](#post-orderspublic_idsquare-payment).
+
+Keep `tracking_token`: it's how a guest follows the order (and pays it, with Square). Retries
+are safe:
 
 - **The same key and the same request** returns the original order and the same PaymentIntent,
   with `200 OK` instead of `201`. Nothing new is created.
@@ -506,8 +526,9 @@ Keep `tracking_token`: it's how a guest follows the order. Retries are safe:
 - **A cart that can't be ordered** (closed, paused, sold out, outside the delivery area, below
   the minimum, a bad promo code): `422`, with the quote's messages under `errors`, keyed by field.
 - **Stripe unreachable:** `503`. Retry with the same key; the order is kept.
-- **The restaurant has no Stripe keys yet:** `503` "This restaurant isn’t taking payments online
-  yet.", before any order is made.
+- **The restaurant's processor isn't set up yet** (no Stripe keys, or Square not connected or
+  without a location): `503` "This restaurant isn’t taking payments online yet.", before any
+  order is made.
 
 ### `GET /orders/{public_id}?token=…`
 
@@ -572,6 +593,44 @@ was called when ordered), otherwise null. Names and prices in `items` are as ord
 `menu_item_id` and `modifier_option_id` point at the menu (for "Order again") and are null
 once that dish or option has been deleted.
 
+### `POST /orders/{public_id}/square-payment`
+
+Pays a Square order with the token from Square's payment form: the Web Payments SDK on the web
+(a card is tokenised with its verification details, so Square can check it with the bank), the
+In-App Payments SDK on iOS and Android.
+
+```http
+POST /api/v1/orders/01k6b2x0v8r5c9m3t7w4y1z6qe/square-payment
+Content-Type: application/json
+Idempotency-Key: 9b2e4c1d-…
+
+{
+    "tracking_token": "Gs3kq9…",
+    "source_id": "cnon:CBASE…",
+    "verification_token": null
+}
+```
+
+| Field | Rules |
+|---|---|
+| `Idempotency-Key` header | Required, 8–100 characters. New for each try (each token), repeated unchanged on retries |
+| `tracking_token` | Required: the order's own, from creating it |
+| `source_id` | Required: the card, Apple Pay or Google Pay token |
+| `verification_token` | Optional: from Square's separate buyer verification, where the SDK gives one |
+
+- **`200 OK`:** paid. The order is `placed` and on its way to the kitchen:
+  `{"data": {"order": { "status": "placed", "payment_status": "paid", "…": "as in GET /orders/{public_id}" }}}`.
+  An order that's already paid answers the same, without charging again.
+- **`202 Accepted`:** Square took the payment but hasn't finished it; its webhook places the
+  order shortly. Show the order's page.
+- **`402`:** the card was declined. The message says what to do, for example "Your card was
+  declined: there isn’t enough money in the account. Try another card." Try again with another
+  token and a new key.
+- **`409`:** the order can't be paid this way: it timed out before it was paid (nothing was
+  charged), it's paid with Stripe, or another payment for it is going through right now.
+- **`404`:** an unknown order, or not its tracking token. **`422`:** a missing field or header.
+- **`503`:** Square couldn't be reached. Try again; the order waits.
+
 ### `POST /stripe/webhook/{slug}`
 
 For Stripe only: each restaurant's own Stripe account sends its events to its own endpoint,
@@ -589,6 +648,24 @@ arrives after its checkout was cancelled is refunded automatically.
 Events are processed during the request, so a paid order reaches the kitchen within a second.
 If processing fails, Stripe still gets `200` and the event is retried on the queue (five
 tries, 30 seconds apart).
+
+### `POST /square/webhook/{environment}`
+
+For Square: the platform's Square application sends the events of every restaurant connected
+to it, one URL per environment (`sandbox`, `production`). The `x-square-hmacsha256-signature`
+header must be the HMAC-SHA256 of the subscription's notification URL
+(`<APP_URL>/api/v1/square/webhook/<environment>`) followed by the raw body, keyed with that
+subscription's signature key; otherwise `400`.
+
+The platform acts on:
+- `payment.created` / `payment.updated` with status `COMPLETED` (the order, found by its payment
+  or by `reference_id`, is paid and placed, if its answer never reached the API);
+- `refund.updated` with status `FAILED` or `REJECTED` (logged, to refund by hand);
+- `oauth.authorization.revoked` (the restaurant's Square connection is forgotten; it goes back
+  to Stripe if that's set up).
+
+Anything else, including the restaurant's in-person Square sales, is acknowledged and ignored.
+Each event is stored once per environment: a replay gets `200` with `"duplicate": true`.
 
 ## Customer accounts (orders, addresses, notifications)
 

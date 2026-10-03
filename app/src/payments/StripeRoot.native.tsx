@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import { useEffect, type PropsWithChildren } from 'react';
 
-import { usePublishableKey } from '@/payments/use-publishable-key';
+import { usePublishableKey } from '@/payments/use-payment-settings';
 
 /** Set in app.config.ts from the brand's appleMerchantId; the same ID is in the build's entitlements. */
 const merchantIdentifier = (Constants.expoConfig?.extra as { appleMerchantId?: string } | undefined)?.appleMerchantId;

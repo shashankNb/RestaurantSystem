@@ -67,8 +67,24 @@ export const restaurantSchema = z.object({
   }),
   opening_hours: z.array(openingHourSchema),
   special_hours: z.array(specialHourSchema),
-  /** The restaurant's own Stripe account: its publishable key, once all its keys are in. */
-  payments: z.object({ stripe_publishable_key: z.string().nullable() }).optional(),
+  /**
+   * How customers pay: with the restaurant's own Stripe account (its publishable key) or its
+   * own Square account (the platform's Square application and its location), once set up.
+   */
+  payments: z
+    .object({
+      processor: z.enum(['stripe', 'square']).default('stripe'),
+      stripe_publishable_key: z.string().nullable(),
+      square: z
+        .object({
+          application_id: z.string(),
+          location_id: z.string(),
+          environment: z.enum(['sandbox', 'production']),
+        })
+        .nullable()
+        .optional(),
+    })
+    .optional(),
 });
 
 export const membershipSchema = z.object({
@@ -245,14 +261,26 @@ export const orderSchema = z.object({
 export const checkoutSchema = z.object({
   order: orderSchema,
   tracking_token: z.string(),
-  payment: z.object({
-    payment_intent_id: z.string(),
-    client_secret: z.string(),
-    status: z.string(),
-    amount_cents: z.number().int(),
-    currency: z.string(),
-  }),
+  /** With Stripe, the PaymentIntent to confirm; with Square, nothing yet (the app sends its token). */
+  payment: z.discriminatedUnion('processor', [
+    z.object({
+      processor: z.literal('stripe'),
+      payment_intent_id: z.string(),
+      client_secret: z.string(),
+      status: z.string(),
+      amount_cents: z.number().int(),
+      currency: z.string(),
+    }),
+    z.object({
+      processor: z.literal('square'),
+      amount_cents: z.number().int(),
+      currency: z.string(),
+    }),
+  ]),
 });
+
+/** A Square order after its payment: placed, or still waiting while Square finishes it. */
+export const squarePaymentSchema = z.object({ order: orderSchema });
 
 export const myOrdersSchema = z.object({
   data: z.array(orderSchema),

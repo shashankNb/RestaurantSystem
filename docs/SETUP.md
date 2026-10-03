@@ -189,6 +189,51 @@ until the webhook arrives, because the webhook is what marks an order paid.
 With test keys, Stripe.js adds a small "stripe" button in the corner of web pages ("Open Stripe
 Developer Tools"). It comes from Stripe, not the app.
 
+### Square (sandbox)
+
+A restaurant can take payments with its own Square account instead of Stripe. Its owner
+connects the account in the back office (Restaurant settings → Payments → Square) and switches
+between the two there; each order stays with the processor it was paid with, refunds included.
+For that, the platform has its own Square application, set up once:
+
+1. At [developer.squareup.com/apps](https://developer.squareup.com/apps), create an application.
+   Its **Credentials** page has an application ID and secret for the sandbox and for production.
+   Put the sandbox ones in `backend/.env`:
+   ```dotenv
+   SQUARE_SANDBOX_APPLICATION_ID=sandbox-sq0idb-…
+   SQUARE_SANDBOX_APPLICATION_SECRET=sandbox-sq0csb-…
+   ```
+2. On its **OAuth** page, in the sandbox, set the redirect URL to
+   `http://localhost/square/oauth/callback`. (Production needs HTTPS:
+   `https://<API host>/square/oauth/callback`.)
+3. On its **Webhooks** page, in the sandbox, add a subscription:
+   - URL `<APP_URL>/api/v1/square/webhook/sandbox` (exactly, as Square signs with it);
+   - events `payment.created`, `payment.updated`, `refund.updated` and
+     `oauth.authorization.revoked`;
+   - put its signature key in `SQUARE_SANDBOX_WEBHOOK_SIGNATURE_KEY`.
+
+   Square can't reach `localhost`, so locally these events don't arrive. Payments still work:
+   Square's are confirmed while the customer waits. The webhook only catches a payment whose
+   answer was lost, a refund that failed, or an account disconnected on Square's side.
+4. In the Developer Console, under **Sandbox test accounts**, open the default test account's
+   Square Dashboard. Square only connects a sandbox account while its dashboard is open in the
+   same browser.
+5. In the back office: Restaurant settings → Payments → Square → **Connect a sandbox account
+   (test)**, and approve on Square's page. If Stripe isn't set up, customers pay with Square
+   straight away; otherwise press **Switch to Square** under Payments.
+6. Pay with Square's test card `4111 1111 1111 1111`, CVV `111`, any future expiry date.
+   `4000 0000 0000 0002` is declined, and `4310 0000 0020 1019` asks for a bank check (enter
+   `123456`).
+
+For live payments, fill in `SQUARE_APPLICATION_ID`, `SQUARE_APPLICATION_SECRET` and
+`SQUARE_WEBHOOK_SIGNATURE_KEY` from the production credentials, with the production redirect URL
+and a webhook subscription to `<APP_URL>/api/v1/square/webhook/production`. The back office then
+offers **Connect Square** too. A restaurant is connected in one environment at a time.
+
+The scheduler renews each restaurant's Square access token when it's a week old
+(`square:refresh-tokens`, daily). Tests never call Square: they use a fake, and
+`HttpSquareGateway` is tested against faked responses.
+
 ### Troubleshooting
 
 - **A port is already in use:** change `APP_PORT`, `FORWARD_DB_PORT`,
@@ -327,6 +372,12 @@ has one set up: one tap, no card number. Where there isn't one, only the card fo
   whether Apple Pay and Google Pay are on in the Stripe account). Stripe can't register
   `localhost`, so `http://localhost:8081` shows only the card form; the deployed site shows
   the wallets.
+- **Web, with Square:** Square's Apple Pay needs its verification file on the website, at
+  `/.well-known/apple-developer-merchantid-domain-association`. Every brand's site serves it,
+  from `app/public/.well-known/` (Square's file, from
+  `https://app.squareup.com/digital-wallets/apple-pay/apple-developer-merchantid-domain-association`;
+  Square says it can change, so if Apple Pay stops verifying, download it again). The back
+  office registers the domain with the restaurant's Square account; Google Pay needs nothing.
 - **iOS app:** needs the Apple Merchant ID (see Payments on iOS and Android below), a
   development build, and a device (or simulator) with a card in Wallet.
 - **Android app:** Google Pay works with a card in Google Wallet. With test keys it uses Google's
@@ -345,6 +396,22 @@ PaymentSheet takes cards with the publishable key alone. For the wallets:
   restaurant's keys are test keys, and the real one with live keys. It also has to be on in the
   restaurant's Stripe account: **Turn on Apple Pay and Google Pay** in the back office's
   Payments does that.
+
+With Square, the apps use Square's In-App Payments SDK (`react-native-square-in-app-payments`):
+Square's own card form, which checks the card with the bank when needed, and Square's Apple Pay
+and Google Pay.
+
+- **Apple Pay with Square** needs its own Apple Merchant ID, because a merchant ID can only have
+  one active payment processing certificate and the Stripe one is taken. One ID serves every
+  brand (for example `merchant.au.com.yourplatform.square`): put it in each `brand.json` as
+  `squareAppleMerchantId`. In the Square Developer Console, open your application's Apple Pay
+  page (In-App Payments SDK), download its certificate signing request, create the Apple Pay
+  payment processing certificate for that merchant ID with it in Apple Developer, and upload the
+  certificate back to Square.
+- **Google Pay with Square** uses Google's test environment in the sandbox and the real one in
+  production. Before going live, follow Square's Google Pay guide for Google's production access.
+- Square's Android SDK needs Kotlin 2.2.21: its config plugin and `plugins/with-kotlin-version.js`
+  set it for the whole build.
 
 ### Push notifications
 

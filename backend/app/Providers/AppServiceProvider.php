@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Payments\PaymentGateway;
+use App\Payments\Square\HttpSquareGateway;
+use App\Payments\Square\SquareGateway;
 use App\Payments\StripePaymentGateway;
 use Filament\Resources\Resource;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -20,8 +22,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Each order brings its restaurant's own Stripe keys (see StripePaymentGateway).
+        // Each order brings its restaurant's own Stripe keys (see StripePaymentGateway), or the
+        // tokens of the Square account it connected (see HttpSquareGateway).
         $this->app->singleton(PaymentGateway::class, StripePaymentGateway::class);
+        $this->app->singleton(SquareGateway::class, HttpSquareGateway::class);
     }
 
     /**
@@ -64,6 +68,8 @@ class AppServiceProvider extends ServiceProvider
         // Placing orders: generous for real customers (retries reuse the same order), tight
         // enough to stop anyone creating PaymentIntents in bulk.
         RateLimiter::for('orders', fn (Request $request): Limit => Limit::perMinute(10)->by('orders:'.$request->ip()));
+        // Each try with a card is a payment attempt at the bank: a few a minute is plenty.
+        RateLimiter::for('square-payments', fn (Request $request): Limit => Limit::perMinute(10)->by('square-payments:'.$request->ip()));
 
         RateLimiter::for('push-tokens', fn (Request $request): Limit => Limit::perMinute(20)->by('push-tokens:'.$request->ip()));
     }

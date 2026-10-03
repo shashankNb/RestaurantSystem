@@ -15,8 +15,9 @@ Plan on about an hour of your time, plus however long the app stores take to rev
 - Their brand colour, and a logo or mark for the app icon (square, simple, readable when tiny).
 - The web address for their ordering site (for example `order.kathmandukitchen.com.au`), and
   someone who can add DNS records for it.
-- A Stripe account in the restaurant's name, with their bank account for payouts. They create
-  it and enter its keys themselves, so you never handle their secret keys.
+- A Stripe account or a Square account in the restaurant's name, with their bank account for
+  payouts (many Australian restaurants already use Square). They connect it themselves, so you
+  never handle their secret keys.
 - Whose Apple and Google developer accounts publish the app: usually yours, for every restaurant.
 
 ## 1. Create the restaurant
@@ -59,10 +60,33 @@ Signed in at `/admin`, the owner fills in:
   address is set.
 - **Staff,** for the kitchen screens, and **Promo codes.**
 
-## 3. Payments: the restaurant's own Stripe account
+## 3. Payments: the restaurant's own Stripe or Square account
 
-The owner does this in **Restaurant settings → Payments**. That section shows the webhook
-address to use and says whether the restaurant can take payments yet.
+The owner does this in **Restaurant settings → Payments**, which says how customers pay right
+now. They can set up Stripe, Square, or both, and switch between them there (**Switch to
+Square** or **Switch to Stripe**, shown once the other one is ready). The first one set up is
+used straight away. A switch takes effect at once; orders already placed stay with the
+processor they were paid with, refunds included.
+
+### With Square
+
+1. Under **Square**, press **Connect Square**, sign in to the restaurant's Square account on
+   Square's page and approve. (Your platform's Square application has to be set up first: see
+   [SETUP.md](SETUP.md#square-sandbox).)
+2. Choose the **Location** payments go to, if the account has more than one that takes
+   Australian dollars, and save.
+3. Apple Pay and Google Pay: Google Pay needs nothing. For Apple Pay on the website, the website's
+   domain is registered with the Square account once both are in (the checklist under Square
+   shows it); **Check with Square** checks again. In the apps they work through your platform's
+   Square merchant ID (`squareAppleMerchantId` in step 4).
+
+**Connect a sandbox account (test)** connects a Square sandbox account instead: test payments
+with Square's test cards, such as `4111 1111 1111 1111`. Disconnect it and connect the live
+account when the restaurant is ready.
+
+### With Stripe
+
+Under **Stripe**, Payments shows the webhook address to use.
 
 1. In Stripe, **Developers → API keys**: paste the publishable key (`pk_…`) and the secret key
    (`sk_…`). The back office refuses keys pasted the wrong way round, or a mix of test and live
@@ -114,6 +138,7 @@ Then edit `brand.json`:
 | `scheme` | Deep links into the app; letters only | kathmandukitchen |
 | `bundleId` | App Store and Google Play identifier, never changed once published | au.com.kathmandukitchen.ordering |
 | `appleMerchantId` | Apple Pay merchant ID (see step 3) | merchant.au.com.kathmandukitchen.ordering |
+| `squareAppleMerchantId` | Apple Pay with Square: your platform's one Square merchant ID, the same in every brand (see [SETUP.md](SETUP.md#payments-on-ios-and-android)) | merchant.au.com.yourplatform.square |
 | `brandColor` | The same colour as in the back office | #1F5A7A |
 | `webUrl` | The website's address from step 6 | https://order.kathmandukitchen.com.au |
 | `easProjectId` | Added in step 5 | |
@@ -211,12 +236,13 @@ BRAND=kathmandu-kitchen eas deploy --environment production --prod   # the live 
 With test keys in Payments (or live keys and a small order you then refund):
 
 - [ ] The menu, photos and opening hours show on the website and in the app.
-- [ ] An order paid with `4242 4242 4242 4242` reaches the kitchen screen within a few seconds,
-      with its alert.
+- [ ] An order paid with `4242 4242 4242 4242` (Stripe) or `4111 1111 1111 1111` (Square's
+      sandbox) reaches the kitchen screen within a few seconds, with its alert.
 - [ ] At checkout on the website, Chrome shows a Google Pay button and Safari an Apple Pay one.
 - [ ] Accepting it updates the customer's order screen, and a push notification arrives on a phone.
 - [ ] The receipt email shows the restaurant's name, and its link opens the restaurant's site.
-- [ ] A refund from the back office goes back to the card, in the restaurant's Stripe account.
+- [ ] A refund from the back office goes back to the card, in the restaurant's Stripe or Square
+      account.
 
 ## Good to know
 

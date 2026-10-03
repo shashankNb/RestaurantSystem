@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Enums\FulfilmentType;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use App\Models\Restaurant;
@@ -32,6 +33,7 @@ class OrderFactory extends Factory
             'user_id' => null,
             'status' => OrderStatus::PendingPayment,
             'payment_status' => PaymentStatus::Unpaid,
+            'payment_processor' => PaymentProcessor::Stripe,
             'fulfilment_type' => FulfilmentType::Pickup,
             'scheduled_for' => null,
             'customer_name' => fake()->name(),
@@ -58,6 +60,16 @@ class OrderFactory extends Factory
             'delivery_fee_cents' => 600,
             'total_cents' => $attributes['subtotal_cents'] - $attributes['discount_cents'] + 600,
             'gst_cents' => (int) round(($attributes['subtotal_cents'] - $attributes['discount_cents'] + 600) / 11),
+        ]);
+    }
+
+    /** Paid, or to be paid, with Square: after placed(), its Square payment instead of a PaymentIntent. */
+    public function square(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'payment_processor' => PaymentProcessor::Square,
+            'stripe_payment_intent_id' => null,
+            'square_payment_id' => ($attributes['payment_status'] ?? null) === PaymentStatus::Paid ? 'sqpay_'.Str::random(20) : null,
         ]);
     }
 

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\FulfilmentType;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
 use App\Events\OrderUpdated;
 use App\Jobs\RefundOrder;
@@ -18,6 +19,7 @@ use App\Payments\PaymentGateway;
 use App\Payments\PaymentsUnavailable;
 use Carbon\CarbonImmutable;
 use Illuminate\Broadcasting\BroadcastException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -69,12 +71,13 @@ final class OrderService
     }
 
     /**
-     * Stripe confirmed the payment (webhook): the order is paid and goes to the kitchen. Safe
-     * to call twice. A payment that arrives after the order was cancelled is refunded.
+     * The payment went through: Stripe's webhook confirmed the PaymentIntent, or Square took
+     * the payment (or its webhook said so). The order is paid and goes to the kitchen. Safe to
+     * call twice. A payment that arrives after the order was cancelled is refunded.
      */
-    public function markPaid(Order $order, string $paymentIntentId, int $amountCents): Order
+    public function markPaid(Order $order, string $paymentId, int $amountCents): Order
     {
-        return DB::transaction(function () use ($order, $paymentIntentId, $amountCents): Order {
+        return DB::transaction(function () use ($order, $paymentId, $amountCents): Order {
             // Locking the restaurant serialises order numbers for orders paid at the same moment.
             Restaurant::query()->whereKey($order->restaurant_id)->lockForUpdate()->first();
             $order = $this->lock($order);
@@ -83,17 +86,21 @@ final class OrderService
                 return $order;
             }
 
-            if ($order->stripe_payment_intent_id !== $paymentIntentId || $amountCents !== $order->total_cents) {
+            if (! self::isOrdersPayment($order, $paymentId) || $amountCents !== $order->total_cents) {
                 Log::critical('Payment does not match its order.', [
                     'order' => $order->public_id,
-                    'payment_intent' => $paymentIntentId,
+                    'processor' => $order->payment_processor->value,
+                    'payment' => $paymentId,
                     'amount' => $amountCents,
                 ]);
 
                 return $order;
             }
 
-            $order->forceFill(['payment_status' => PaymentStatus::Paid])->save();
+            $order->forceFill([
+                'payment_status' => PaymentStatus::Paid,
+                ...($order->payment_processor === PaymentProcessor::Square ? ['square_payment_id' => $paymentId] : []),
+            ])->save();
 
             if ($order->status !== OrderStatus::PendingPayment) {
                 // Paid after it was cancelled (the checkout expired): give the money back.
@@ -191,11 +198,26 @@ final class OrderService
     }
 
     /**
-     * An unpaid checkout that timed out: cancel it, and stop its PaymentIntent from being
-     * paid later. (If it's paid anyway, markPaid refunds it.)
+     * An unpaid checkout that timed out: cancel it, and stop its Stripe PaymentIntent from
+     * being paid later. (If it's paid anyway, markPaid refunds it.) A Square order whose
+     * payment is going through right now is left for the next run.
      */
     public function expireUnpaid(Order $order): Order
     {
+        if ($order->payment_processor === PaymentProcessor::Square) {
+            $lock = Cache::lock(SquareCheckoutService::lockName($order), 120);
+
+            if (! $lock->get()) {
+                return $order;
+            }
+
+            try {
+                return $this->cancel($order, null, 'Payment wasn’t completed in time.');
+            } finally {
+                $lock->release();
+            }
+        }
+
         $order = $this->cancel($order, null, 'Payment wasn’t completed in time.');
 
         if ($order->stripe_payment_intent_id !== null) {
@@ -292,6 +314,18 @@ final class OrderService
         } elseif ($order->status === OrderStatus::Rejected || $order->status === OrderStatus::Cancelled) {
             Mail::to($order->customer_email)->queue(new OrderCancelled($order));
         }
+    }
+
+    /**
+     * The payment is the order's own: its Stripe PaymentIntent, or its Square payment (known
+     * once Square has taken it).
+     */
+    private static function isOrdersPayment(Order $order, string $paymentId): bool
+    {
+        return match ($order->payment_processor) {
+            PaymentProcessor::Stripe => $order->stripe_payment_intent_id === $paymentId,
+            PaymentProcessor::Square => $paymentId !== '' && ($order->square_payment_id === null || $order->square_payment_id === $paymentId),
+        };
     }
 
     private function queueRefund(Order $order): void

@@ -28,8 +28,10 @@ class CancelUnpaidOrders extends Command
             ->lazyById()
             ->each(function (Order $order) use ($orders, &$cancelled): void {
                 try {
-                    $orders->expireUnpaid($order);
-                    $cancelled++;
+                    // Not cancelled while its Square payment is going through: next time.
+                    if ($orders->expireUnpaid($order)->status === OrderStatus::Cancelled) {
+                        $cancelled++;
+                    }
                 } catch (InvalidOrderTransition) {
                     // Paid (or cancelled) since the query ran: leave it.
                 }

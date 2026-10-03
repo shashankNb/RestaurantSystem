@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\QuoteController;
 use App\Http\Controllers\Api\RestaurantController;
 use App\Http\Controllers\Api\SlotsController;
+use App\Http\Controllers\Api\SquarePaymentController;
+use App\Http\Controllers\Api\SquareWebhookController;
 use App\Http\Controllers\Api\Staff\AvailabilityController;
 use App\Http\Controllers\Api\Staff\OrderController as StaffOrderController;
 use App\Http\Controllers\Api\StripeWebhookController;
@@ -46,6 +48,12 @@ Route::prefix('restaurants/{restaurant}')->name('restaurants.')->group(function 
 // Order tracking: the customer, signed in or with the order's tracking token.
 Route::get('orders/{publicId}', [OrderController::class, 'show'])->name('orders.show');
 
+// Paying a Square order with the token from the app's Square form, with the order's tracking
+// token and an Idempotency-Key header.
+Route::post('orders/{publicId}/square-payment', [SquarePaymentController::class, 'store'])
+    ->middleware('throttle:square-payments')
+    ->name('orders.square-payment');
+
 // Push notifications: signed in, or for one order with its tracking token.
 Route::post('push-tokens', [PushTokenController::class, 'store'])
     ->middleware('throttle:push-tokens')
@@ -54,6 +62,12 @@ Route::post('push-tokens', [PushTokenController::class, 'store'])
 // Stripe: each restaurant's own account sends its events here (signature verified with
 // that restaurant's signing secret; each event processed once).
 Route::post('stripe/webhook/{restaurant:slug}', StripeWebhookController::class)->name('stripe.webhook');
+
+// Square: the platform's Square application sends the events of every restaurant connected to
+// it here, one URL per environment (signature verified with that subscription's key).
+Route::post('square/webhook/{environment}', SquareWebhookController::class)
+    ->whereIn('environment', ['sandbox', 'production'])
+    ->name('square.webhook');
 
 // Accounts
 Route::prefix('auth')->name('auth.')->group(function (): void {

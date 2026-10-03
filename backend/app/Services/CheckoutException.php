@@ -32,4 +32,22 @@ final class CheckoutException extends RuntimeException
     {
         return new self('This order is still being set up. Try again in a few seconds.', 409);
     }
+
+    /** 409: the order is paid with Stripe, not with a Square token. */
+    public static function notSquare(): self
+    {
+        return new self('This order is paid another way. Place your order again.', 409);
+    }
+
+    /** 409: the order was cancelled before it was paid (it waited too long); nothing was charged. */
+    public static function expired(): self
+    {
+        return new self('This order timed out before it was paid, and nothing was charged. Place your order again.', 409);
+    }
+
+    /** 409: another payment for the order is going through right now. */
+    public static function paymentInProgress(): self
+    {
+        return new self('Your payment is already going through. Wait a moment, then check your order.', 409);
+    }
 }

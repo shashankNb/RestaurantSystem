@@ -2,11 +2,17 @@
 
 namespace App\Filament\Pages\Tenancy;
 
+use App\Enums\PaymentProcessor;
+use App\Enums\SquareEnvironment;
 use App\Models\Restaurant;
 use App\Payments\PaymentGateway;
 use App\Payments\PaymentsUnavailable;
+use App\Payments\Square\SquareApp;
+use App\Payments\Square\SquareConnectionLost;
+use App\Payments\Square\SquareLocation;
 use App\Payments\WalletSetup;
 use App\Rules\WebsiteDomain;
+use App\Services\SquareAccountService;
 use Closure;
 use DateTimeZone;
 use Filament\Actions\Action;
@@ -80,8 +86,40 @@ class EditRestaurantSettings extends EditTenantProfile
 
             Section::make('Payments')
                 ->key('payments')
-                ->description('Customers pay into your own Stripe account. Copy your keys from the Stripe dashboard (Developers → API keys), then add a webhook so paid orders reach the kitchen. Test keys (pk_test_, sk_test_) take test payments with Stripe’s test cards; live keys take real ones. Switch whenever you’re ready.')
+                ->description('Customers pay into your own Stripe or Square account. Set up either one, or both, and choose which customers pay with. A switch takes effect straight away; orders already placed stay with the one they were paid with, refunds included.')
+                ->afterHeader([
+                    Action::make('useSquare')
+                        ->label('Switch to Square')
+                        ->icon(Heroicon::OutlinedArrowsRightLeft)
+                        ->link()
+                        ->visible(fn (): bool => $this->canSwitchTo(PaymentProcessor::Square))
+                        ->requiresConfirmation()
+                        ->modalHeading('Take payments with Square?')
+                        ->modalDescription('New orders are paid into your Square account from now on. Orders already placed stay with Stripe, and are refunded there.')
+                        ->modalSubmitActionLabel('Switch to Square')
+                        ->action(fn () => $this->switchTo(PaymentProcessor::Square)),
+                    Action::make('useStripe')
+                        ->label('Switch to Stripe')
+                        ->icon(Heroicon::OutlinedArrowsRightLeft)
+                        ->link()
+                        ->visible(fn (): bool => $this->canSwitchTo(PaymentProcessor::Stripe))
+                        ->requiresConfirmation()
+                        ->modalHeading('Take payments with Stripe?')
+                        ->modalDescription('New orders are paid into your Stripe account from now on. Orders already placed stay with Square, and are refunded there.')
+                        ->modalSubmitActionLabel('Switch to Stripe')
+                        ->action(fn () => $this->switchTo(PaymentProcessor::Stripe)),
+                ])
+                ->schema([
+                    TextEntry::make('payments_status')
+                        ->label('Status')
+                        ->state(fn (): string => $this->paymentsStatus()),
+                ]),
+
+            Section::make('Stripe')
+                ->key('stripe')
+                ->description('Copy your keys from the Stripe dashboard (Developers → API keys), then add a webhook so paid orders reach the kitchen. Test keys (pk_test_, sk_test_) take test payments with Stripe’s test cards; live keys take real ones. Switch whenever you’re ready.')
                 ->columns(2)
+                ->collapsible()
                 ->afterHeader([
                     Action::make('turnOnWallets')
                         ->label('Turn on Apple Pay and Google Pay')
@@ -101,10 +139,6 @@ class EditRestaurantSettings extends EditTenantProfile
                         ->action(fn () => $this->checkStripeKeys()),
                 ])
                 ->schema([
-                    TextEntry::make('payments_status')
-                        ->label('Status')
-                        ->state(fn (): string => $this->paymentsStatus())
-                        ->columnSpanFull(),
                     TextEntry::make('wallets_status')
                         ->label('Apple Pay and Google Pay')
                         ->state(fn (): array => $this->walletsChecklist())
@@ -148,6 +182,61 @@ class EditRestaurantSettings extends EditTenantProfile
                                 $fail('The signing secret starts with whsec_.');
                             }
                         }]),
+                ]),
+
+            Section::make('Square')
+                ->key('square')
+                ->description('Connect your Square account: you sign in to Square and approve, then choose the location payments go to. A Square sandbox account takes test payments with Square’s test cards.')
+                ->columns(2)
+                ->collapsible()
+                ->afterHeader([
+                    Action::make('connectSquare')
+                        ->label('Connect Square')
+                        ->icon(Heroicon::OutlinedLink)
+                        ->link()
+                        ->visible(fn (): bool => ! $this->restaurant()->squareConnected() && SquareApp::for(SquareEnvironment::Production) !== null)
+                        ->url(fn (): string => route('square.connect', ['restaurant' => $this->restaurant(), 'environment' => SquareEnvironment::Production->value])),
+                    Action::make('connectSquareSandbox')
+                        ->label('Connect a sandbox account (test)')
+                        ->icon(Heroicon::OutlinedBeaker)
+                        ->link()
+                        ->visible(fn (): bool => ! $this->restaurant()->squareConnected() && SquareApp::for(SquareEnvironment::Sandbox) !== null)
+                        ->url(fn (): string => route('square.connect', ['restaurant' => $this->restaurant(), 'environment' => SquareEnvironment::Sandbox->value])),
+                    Action::make('checkSquare')
+                        ->label('Check with Square')
+                        ->icon(Heroicon::OutlinedShieldCheck)
+                        ->link()
+                        ->visible(fn (): bool => $this->restaurant()->squareConnected())
+                        ->action(fn () => $this->checkSquare()),
+                    Action::make('disconnectSquare')
+                        ->label('Disconnect')
+                        ->icon(Heroicon::OutlinedXMark)
+                        ->color('danger')
+                        ->link()
+                        ->visible(fn (): bool => $this->restaurant()->squareConnected())
+                        ->requiresConfirmation()
+                        ->modalHeading('Disconnect Square?')
+                        ->modalDescription('Customers can’t pay with Square until it’s connected again; if Stripe is set up, they pay with Stripe instead. Until then, orders already paid with Square can only be refunded in your Square dashboard.')
+                        ->modalSubmitActionLabel('Disconnect')
+                        ->action(fn () => $this->disconnectSquare()),
+                ])
+                ->schema([
+                    TextEntry::make('square_account')
+                        ->label('Account')
+                        ->state(fn (): string => $this->squareAccountStatus())
+                        ->columnSpanFull(),
+                    Select::make('square_location_id')
+                        ->label('Location')
+                        ->helperText(fn (): string => "The Square location payments go to. Only locations taking {$this->restaurant()->currency} are listed.")
+                        ->options(fn (): array => $this->squareLocationOptions())
+                        ->visible(fn (): bool => $this->restaurant()->squareConnected()),
+                    TextEntry::make('square_wallets_status')
+                        ->label('Apple Pay and Google Pay')
+                        ->state(fn (): array => $this->squareWalletsChecklist())
+                        ->listWithLineBreaks()
+                        ->bulleted()
+                        ->visible(fn (): bool => $this->restaurant()->squareConnected())
+                        ->columnSpanFull(),
                 ]),
 
             Section::make('Details')
@@ -252,26 +341,52 @@ class EditRestaurantSettings extends EditTenantProfile
     }
 
     /**
-     * Once the keys or the website's domain change, gets the Stripe account ready for Apple Pay
-     * and Google Pay (registering the domain) and keeps the answer for the checklist. Stripe is
-     * asked after the save is committed, so the restaurant isn't kept locked while it answers.
+     * After a save: if the processor in use can't take payments and the other one now can
+     * (Stripe's keys are in, or a Square location was chosen), customers pay with that one.
+     * Once the Stripe keys or the website's domain change, gets the Stripe account ready for
+     * Apple Pay and Google Pay (registering the domain) and keeps the answer for the checklist;
+     * a new domain is registered with Square too. Stripe and Square are asked after the save is
+     * committed, so the restaurant isn't kept locked while they answer.
      */
     protected function afterSave(): void
     {
         $restaurant = $this->restaurant();
-        $changed = $restaurant->wasChanged(['stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'custom_domain']);
+        $stripeChanged = $restaurant->wasChanged(['stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'custom_domain']);
+        $domainChanged = $restaurant->wasChanged('custom_domain');
 
-        if (! $restaurant->acceptsPayments() || (! $changed && $restaurant->walletSetup() !== null)) {
+        if ($restaurant->useReadyProcessor()) {
+            Notification::make()
+                ->success()
+                ->title("Customers now pay with {$restaurant->payment_processor->getLabel()}")
+                ->send();
+        }
+
+        $checkStripe = $restaurant->acceptsPaymentsWith(PaymentProcessor::Stripe) && ($stripeChanged || $restaurant->walletSetup() === null);
+        $registerWithSquare = $domainChanged && $restaurant->squareConnected();
+
+        if (! $checkStripe && ! $registerWithSquare) {
             return;
         }
 
-        DB::afterCommit(function (): void {
-            if ($this->refreshWallets() === null) {
+        DB::afterCommit(function () use ($checkStripe, $registerWithSquare): void {
+            if ($checkStripe && $this->refreshWallets() === null) {
                 Notification::make()
                     ->warning()
                     ->title('Apple Pay and Google Pay couldn’t be set up')
                     ->body('Stripe didn’t answer. Press “Check with Stripe” under Payments to try again: it checks your keys too.')
                     ->send();
+            }
+
+            if ($registerWithSquare) {
+                try {
+                    app(SquareAccountService::class)->registerWebsite($this->restaurant());
+                } catch (PaymentsUnavailable) {
+                    Notification::make()
+                        ->warning()
+                        ->title('Apple Pay with Square couldn’t be set up')
+                        ->body('Square didn’t answer. Press “Check with Square” to try again.')
+                        ->send();
+                }
             }
         });
     }
@@ -288,6 +403,15 @@ class EditRestaurantSettings extends EditTenantProfile
     {
         $restaurant = $this->restaurant();
 
+        if ($restaurant->payment_processor === PaymentProcessor::Square) {
+            return match (true) {
+                $restaurant->acceptsPayments() && $restaurant->square_environment === SquareEnvironment::Sandbox => 'Taking test payments into your Square sandbox account: pay with Square’s test cards, such as 4111 1111 1111 1111. Connect your live Square account to take real payments.',
+                $restaurant->acceptsPayments() => 'Taking payments into your Square account, live.',
+                $restaurant->squareConnected() => 'Not taking payments yet: choose the Square location payments go to. Until then customers can see the menu but can’t check out.',
+                default => 'Not taking payments yet: connect your Square account, or set up Stripe. Until then customers can see the menu but can’t check out.',
+            };
+        }
+
         if ($restaurant->acceptsPayments()) {
             return self::keyMode($restaurant->stripe_secret_key) === 'live'
                 ? 'Taking payments into your Stripe account, in live mode.'
@@ -301,7 +425,153 @@ class EditRestaurantSettings extends EditTenantProfile
             'the webhook signing secret' => $restaurant->stripe_webhook_secret,
         ])->filter(fn (?string $value): bool => blank($value))->keys();
 
-        return 'Not taking payments yet: add '.$missing->join(', ', ' and ').'. Until then customers can see the menu but can’t check out.';
+        $orSquare = SquareApp::for(SquareEnvironment::Production) !== null || SquareApp::for(SquareEnvironment::Sandbox) !== null
+            ? ', or connect Square'
+            : '';
+
+        return 'Not taking payments yet: add '.$missing->join(', ', ' and ').$orSquare.'. Until then customers can see the menu but can’t check out.';
+    }
+
+    private function canSwitchTo(PaymentProcessor $processor): bool
+    {
+        $restaurant = $this->restaurant();
+
+        return $restaurant->payment_processor !== $processor && $restaurant->acceptsPaymentsWith($processor);
+    }
+
+    private function switchTo(PaymentProcessor $processor): void
+    {
+        $restaurant = $this->restaurant();
+
+        if (! $restaurant->acceptsPaymentsWith($processor)) {
+            Notification::make()
+                ->warning()
+                ->title("{$processor->getLabel()} isn’t ready to take payments")
+                ->send();
+
+            return;
+        }
+
+        $restaurant->forceFill(['payment_processor' => $processor])->save();
+
+        Notification::make()
+            ->success()
+            ->title("Customers now pay with {$processor->getLabel()}")
+            ->body('Orders already placed stay with '.$processor->other()->getLabel().'.')
+            ->send();
+    }
+
+    private function squareAccountStatus(): string
+    {
+        $restaurant = $this->restaurant();
+
+        if (SquareApp::for(SquareEnvironment::Production) === null && SquareApp::for(SquareEnvironment::Sandbox) === null) {
+            return 'Square isn’t available on this platform yet.';
+        }
+
+        if (! $restaurant->squareConnected() || $restaurant->square_environment === null) {
+            return 'Not connected. Press “Connect Square” to sign in to Square and approve: customers can then pay into your Square account.';
+        }
+
+        $account = $restaurant->square_merchant_name ?? 'your Square account';
+
+        return $restaurant->square_environment === SquareEnvironment::Sandbox
+            ? "Connected to {$account}: a Square sandbox account, for test payments."
+            : "Connected to {$account}.";
+    }
+
+    /**
+     * The connected account's locations that can take the restaurant's currency.
+     *
+     * @return array<string, string>
+     */
+    private function squareLocationOptions(): array
+    {
+        $restaurant = $this->restaurant();
+
+        return collect($restaurant->squareLocations())
+            ->filter(fn (SquareLocation $location): bool => $location->active && strcasecmp($location->currency, $restaurant->currency) === 0)
+            ->mapWithKeys(fn (SquareLocation $location): array => [$location->id => $location->name])
+            ->all();
+    }
+
+    private function checkSquare(): void
+    {
+        $restaurant = $this->restaurant();
+        $processor = $restaurant->payment_processor;
+
+        try {
+            app(SquareAccountService::class)->check($restaurant);
+        } catch (SquareConnectionLost) {
+            Notification::make()
+                ->danger()
+                ->title('Square no longer accepts the connection')
+                ->body('Disconnect, then press “Connect Square” to connect your account again.')
+                ->send();
+
+            return;
+        } catch (PaymentsUnavailable) {
+            Notification::make()
+                ->danger()
+                ->title('Square didn’t answer')
+                ->body('Try again in a moment.')
+                ->send();
+
+            return;
+        }
+
+        $location = $this->squareLocationOptions()[$restaurant->square_location_id ?? ''] ?? null;
+
+        Notification::make()
+            ->success()
+            ->title('Your Square account is connected')
+            ->body(match (true) {
+                $location === null => 'Choose the location payments go to, and save.',
+                $restaurant->payment_processor !== $processor => "Payments go to {$location}. Customers now pay with Square.",
+                default => "Payments go to {$location}.",
+            })
+            ->send();
+    }
+
+    private function disconnectSquare(): void
+    {
+        $restaurant = $this->restaurant();
+
+        app(SquareAccountService::class)->disconnect($restaurant);
+
+        Notification::make()
+            ->success()
+            ->title('Square is disconnected')
+            ->body($restaurant->acceptsPayments() ? "Customers pay with {$restaurant->payment_processor->getLabel()}." : 'Customers can’t pay online until Stripe is set up or Square is connected again.')
+            ->send();
+    }
+
+    /**
+     * Square's side of Apple Pay and Google Pay: Google Pay needs nothing; Apple Pay needs the
+     * website's domain registered with Square, from the last check.
+     *
+     * @return list<string>
+     */
+    private function squareWalletsChecklist(): array
+    {
+        $restaurant = $this->restaurant();
+        $setup = $restaurant->squareWalletSetup();
+
+        if ($setup === null) {
+            return ['Not checked yet: press “Check with Square”.'];
+        }
+
+        $checkedAt = $setup->checkedAt?->setTimezone($restaurant->timezone)->format('j M, g:i a');
+
+        return array_values(array_filter([
+            'Google Pay: ready.',
+            match (true) {
+                $setup->domain === null => 'Apple Pay: Square only shows it on a public website, not on localhost. Enter your website’s domain under Details.',
+                $setup->domainReady => "Apple Pay: {$setup->domain} is registered with Square.",
+                default => trim("Apple Pay: {$setup->domain} isn’t ready yet. {$setup->domainProblem}"),
+            },
+            $checkedAt === null ? null : "Checked {$checkedAt}.",
+        ]));
     }
 
     private function savedPlaceholder(string $attribute, string $example): string

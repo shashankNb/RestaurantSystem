@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\FulfilmentType;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
 use App\Models\Concerns\BelongsToRestaurant;
 use Database\Factories\OrderFactory;
@@ -23,6 +24,7 @@ use Illuminate\Support\Carbon;
  *
  * @property OrderStatus $status
  * @property PaymentStatus $payment_status
+ * @property PaymentProcessor $payment_processor
  * @property FulfilmentType $fulfilment_type
  * @property Carbon|null $business_date
  * @property Carbon|null $scheduled_for
@@ -37,6 +39,7 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable([
     'user_id',
+    'payment_processor',
     'fulfilment_type',
     'scheduled_for',
     'customer_name',
@@ -88,6 +91,7 @@ class Order extends Model
         return [
             'status' => OrderStatus::class,
             'payment_status' => PaymentStatus::class,
+            'payment_processor' => PaymentProcessor::class,
             'fulfilment_type' => FulfilmentType::class,
             'business_date' => 'date:Y-m-d',
             'order_number' => 'integer',

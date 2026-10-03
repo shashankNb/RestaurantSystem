@@ -3,7 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { useSession } from '@/auth/session';
 import { apiRequest } from '@/lib/api/client';
 import type { CartRequest } from '@/lib/api/ordering';
-import { checkoutSchema, dataOf, myOrdersSchema, orderSchema, type Order } from '@/lib/api/schemas';
+import { checkoutSchema, dataOf, myOrdersSchema, orderSchema, squarePaymentSchema, type Order } from '@/lib/api/schemas';
 import { config } from '@/lib/config';
 import { useRealtimeStatus } from '@/lib/realtime';
 
@@ -18,8 +18,8 @@ export interface OrderRequest extends CartRequest {
 export const orderQueryKey = (publicId: string) => ['order', publicId] as const;
 
 /**
- * Creates the order and its PaymentIntent. The Idempotency-Key must stay the same when the
- * same order is retried, so a retry never creates a second one.
+ * Creates the order, and with Stripe its PaymentIntent. The Idempotency-Key must stay the
+ * same when the same order is retried, so a retry never creates a second one.
  */
 export function usePlaceOrder() {
   return useMutation({
@@ -30,6 +30,24 @@ export function usePlaceOrder() {
         headers: { 'Idempotency-Key': idempotencyKey },
         schema: dataOf(checkoutSchema),
       }),
+  });
+}
+
+/**
+ * Pays a Square order with the token from Square's payment form (card, Apple Pay or Google
+ * Pay). The Idempotency-Key is new for each token, so a retried request is charged once.
+ * Declines (402) and orders that can't be paid any more (409) come with a message to show.
+ */
+export function paySquareOrder(
+  publicId: string,
+  body: { tracking_token: string; source_id: string; verification_token?: string | null },
+  idempotencyKey: string,
+) {
+  return apiRequest(`/orders/${encodeURIComponent(publicId)}/square-payment`, {
+    method: 'POST',
+    body,
+    headers: { 'Idempotency-Key': idempotencyKey },
+    schema: dataOf(squarePaymentSchema),
   });
 }
 
@@ -59,7 +77,7 @@ export function useOrder(publicId: string, trackingToken: string | null) {
         return false;
       }
 
-      // Stripe's confirmation usually lands within seconds of paying.
+      // Stripe's (or Square's) confirmation usually lands within seconds of paying.
       if (status === 'pending_payment') {
         return 3_000;
       }

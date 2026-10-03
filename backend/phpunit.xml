@@ -35,6 +35,13 @@
         <env name="STRIPE_KEY" value=""/>
         <env name="STRIPE_SECRET" value=""/>
         <env name="STRIPE_WEBHOOK_SECRET" value="whsec_test_secret"/>
+        <!-- The platform's Square application, sandbox only: production stays unconfigured. -->
+        <env name="SQUARE_SANDBOX_APPLICATION_ID" value="sandbox-sq0idb-test-app"/>
+        <env name="SQUARE_SANDBOX_APPLICATION_SECRET" value="sandbox-sq0csb-test-secret"/>
+        <env name="SQUARE_SANDBOX_WEBHOOK_SIGNATURE_KEY" value="test-square-signature-key"/>
+        <env name="SQUARE_APPLICATION_ID" value=""/>
+        <env name="SQUARE_APPLICATION_SECRET" value=""/>
+        <env name="SQUARE_WEBHOOK_SIGNATURE_KEY" value=""/>
         <env name="EXPO_ACCESS_TOKEN" value=""/>
         <env name="ORDERING_WEB_URL" value="https://order.example.test"/>
         <env name="PULSE_ENABLED" value="false"/>

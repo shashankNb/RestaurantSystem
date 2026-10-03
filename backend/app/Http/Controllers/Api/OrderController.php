@@ -49,7 +49,14 @@ class OrderController extends Controller
             'data' => [
                 'order' => new OrderResource($order),
                 'tracking_token' => $order->tracking_token,
-                'payment' => [
+                // How the app pays: with Stripe, it confirms this PaymentIntent; with Square, it
+                // sends its card or wallet token to /orders/{id}/square-payment.
+                'payment' => $result->paymentIntent === null ? [
+                    'processor' => $order->payment_processor->value,
+                    'amount_cents' => $order->total_cents,
+                    'currency' => strtolower($restaurant->currency),
+                ] : [
+                    'processor' => $order->payment_processor->value,
                     'payment_intent_id' => $result->paymentIntent->id,
                     'client_secret' => $result->paymentIntent->clientSecret,
                     'status' => $result->paymentIntent->status,

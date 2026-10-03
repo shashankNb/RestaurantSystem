@@ -40,6 +40,26 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
+    // The platform's Square application, which restaurants connect their own Square accounts
+    // to in the back office (Restaurant settings → Payments). Sandbox and production each have
+    // their own credentials and webhook subscription; see docs/SETUP.md.
+    'square' => [
+        // The API version the code is written against (Square-Version header).
+        'version' => '2026-09-16',
+        'sandbox' => [
+            'application_id' => env('SQUARE_SANDBOX_APPLICATION_ID'),
+            'application_secret' => env('SQUARE_SANDBOX_APPLICATION_SECRET'),
+            // For POST /api/v1/square/webhook/sandbox.
+            'webhook_signature_key' => env('SQUARE_SANDBOX_WEBHOOK_SIGNATURE_KEY'),
+        ],
+        'production' => [
+            'application_id' => env('SQUARE_APPLICATION_ID'),
+            'application_secret' => env('SQUARE_APPLICATION_SECRET'),
+            // For POST /api/v1/square/webhook/production.
+            'webhook_signature_key' => env('SQUARE_WEBHOOK_SIGNATURE_KEY'),
+        ],
+    ],
+
     'expo' => [
         'push_url' => env('EXPO_PUSH_URL', 'https://exp.host/--/api/v2/push/send'),
         // Only needed if "enhanced push security" is on for the Expo project.

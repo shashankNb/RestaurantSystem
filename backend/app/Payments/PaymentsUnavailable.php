@@ -8,7 +8,7 @@ use RuntimeException;
  * The payment provider couldn't be reached, refused the request, or isn't configured.
  * The API answers 503 so the app can offer to try again.
  */
-final class PaymentsUnavailable extends RuntimeException
+class PaymentsUnavailable extends RuntimeException
 {
     public static function notConfigured(): self
     {

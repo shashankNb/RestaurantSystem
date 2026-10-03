@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Data\OpeningStatus;
+use App\Enums\PaymentProcessor;
 use App\Models\OpeningHour;
 use App\Models\Restaurant;
 use Illuminate\Http\Request;
@@ -71,11 +72,21 @@ class RestaurantResource extends JsonResource
                     ->values(),
             ),
             'special_hours' => SpecialHourResource::collection($this->specialHours->sortBy('date')->values()),
+            // How customers pay: the processor in use, and only what the apps' payment form for
+            // it needs, once it's set up (until then the apps say payments aren't set up, and
+            // checkout refuses). Never a secret.
             'payments' => [
-                // The restaurant's own Stripe account, for the apps' payment forms. Only the
-                // publishable key, and only once all its keys are in (until then the apps say
-                // payments aren't set up, and checkout refuses).
-                'stripe_publishable_key' => $this->acceptsPayments() ? $this->stripe_publishable_key : null,
+                'processor' => $this->payment_processor->value,
+                // The restaurant's own Stripe account: its publishable key.
+                'stripe_publishable_key' => $this->payment_processor === PaymentProcessor::Stripe && $this->acceptsPayments()
+                    ? $this->stripe_publishable_key
+                    : null,
+                // Its own Square account: the platform's Square application, and its location.
+                'square' => $this->payment_processor === PaymentProcessor::Square && $this->acceptsPayments() ? [
+                    'application_id' => $this->squareApp()?->applicationId,
+                    'location_id' => $this->square_location_id,
+                    'environment' => $this->square_environment?->value,
+                ] : null,
             ],
         ];
     }
