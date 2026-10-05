@@ -116,6 +116,19 @@ final class FakeSquareGateway implements SquareGateway
         return $this->charges[$idempotencyKey] = new SquarePayment('sqpay_'.Str::random(20), $this->paymentStatus, $order->total_cents);
     }
 
+    public function payment(Order $order): SquarePayment
+    {
+        $this->failIfAskedFor($order->restaurant);
+
+        foreach ($this->charges as $payment) {
+            if ($payment->id === $order->square_payment_id) {
+                return $payment;
+            }
+        }
+
+        throw PaymentsUnavailable::because(new RuntimeException("No such payment: {$order->square_payment_id}"));
+    }
+
     public function refund(Order $order, string $idempotencyKey): string
     {
         $this->failIfAskedFor($order->restaurant);

@@ -536,6 +536,9 @@ Order tracking. Pass the `tracking_token` from the order response, or sign in as
 who placed it. Anyone else gets `404`. Names, contact details and the street address are left
 out, because a tracking link can be forwarded.
 
+While the order is `pending_payment`, this also asks Stripe or Square whether it was paid, at
+most every 10 seconds per order. A paid order is then `placed` even if the webhook never came.
+
 ```json
 {
     "data": {

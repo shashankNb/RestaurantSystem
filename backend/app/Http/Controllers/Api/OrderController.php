@@ -3,17 +3,21 @@
 namespace App\Http\Controllers\Api;
 
 use App\Data\QuoteError;
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreOrderRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\Restaurant;
 use App\Models\User;
+use App\Payments\PaymentsUnavailable;
 use App\Services\CheckoutException;
 use App\Services\CheckoutService;
+use App\Services\OrderService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class OrderController extends Controller
 {
@@ -85,7 +89,26 @@ class OrderController extends Controller
 
         abort_unless($allowed, 404);
 
-        return new OrderResource($order->load(['restaurant', 'items.modifiers', 'statusEvents']));
+        return new OrderResource($this->paidMeanwhile($order)->load(['restaurant', 'items.modifiers', 'statusEvents']));
+    }
+
+    /**
+     * While the customer waits on "Confirming your payment", their order page asks every few
+     * seconds. At most every 10 seconds, that also asks Stripe or Square whether the order was
+     * paid, so it reaches the kitchen even if the webhook that should have said so is lost.
+     */
+    private function paidMeanwhile(Order $order): Order
+    {
+        if ($order->status !== OrderStatus::PendingPayment || ! Cache::add("payment-check:{$order->id}", true, 10)) {
+            return $order;
+        }
+
+        try {
+            return app(OrderService::class)->reconcilePayment($order);
+        } catch (PaymentsUnavailable) {
+            // The webhook may still come; the next look asks again.
+            return $order;
+        }
     }
 
     /**

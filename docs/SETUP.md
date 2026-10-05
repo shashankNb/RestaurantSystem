@@ -183,8 +183,10 @@ Until a restaurant has all three keys (publishable, secret, webhook signing secr
 order answers `503` "This restaurant isn’t taking payments online yet", and the app's checkout
 says so. Tests never call Stripe: they use a fake gateway and sign webhooks with a test secret.
 
-Without `stripe listen` running, payments succeed but orders stay at "Confirming your payment"
-until the webhook arrives, because the webhook is what marks an order paid.
+Without `stripe listen` running (or with a signing secret that isn't the one in the back
+office), the webhook doesn't arrive. The order then still reaches the kitchen: while the
+customer's order page says "Confirming your payment", the API asks Stripe itself every 10
+seconds. See [Troubleshooting](#troubleshooting) for a stuck order.
 
 With test keys, Stripe.js adds a small "stripe" button in the corner of web pages ("Open Stripe
 Developer Tools"). It comes from Stripe, not the app.
@@ -223,6 +225,29 @@ Square: they use a fake, and `HttpSquareGateway` is tested against faked respons
 
 ### Troubleshooting
 
+- **An order is stuck at "Awaiting payment" ("Confirming your payment" for the customer):** the
+  payment provider's webhook didn't arrive.
+  - **The customer's order page fixes it by itself.** While it waits, it asks Stripe or Square
+    directly (every 10 seconds), and a paid order then goes to the kitchen.
+  - **In the back office,** open the order: **Check payment** asks Stripe or Square now, and
+    **Cancel** cancels it, refunding the customer if they did pay.
+  - **An unpaid order is cancelled after 30 minutes,** but only once Stripe or Square confirms
+    it wasn't paid (a paid one goes to the kitchen instead).
+  - **Then fix the webhook:**
+    - locally, `stripe listen` must be running and forwarding to
+      `localhost/api/v1/stripe/webhook/<link-name>`, and the `whsec_…` it prints must be the
+      one in Restaurant settings → Payments → Stripe;
+    - deployed, check the endpoint's URL, events and signing secret against
+      [the README's table](../README.md#payment-webhooks). Each endpoint in Stripe's dashboard
+      has its own signing secret, never the one `stripe listen` prints, and the demo seeder
+      copies the `stripe listen` one from `STRIPE_WEBHOOK_SECRET`. On a server, paste the
+      dashboard endpoint's secret in Restaurant settings → Payments → Stripe.
+  - **Stripe shows why a delivery was refused,** next to it in the endpoint's event deliveries:
+    "it doesn't match this restaurant's signing secret" (the secret), "more than 5 minutes from
+    this server's time" (the server's clock), or a header problem. Fix it, then press
+    **Resend** on the failed event.
+  - **A refused webhook is logged** ("A Stripe webhook was refused.", with the reason) in
+    `storage/logs/laravel.log`.
 - **A port is already in use:** change `APP_PORT`, `FORWARD_DB_PORT`,
   `FORWARD_MAILPIT_PORT` or `FORWARD_MAILPIT_DASHBOARD_PORT` in `.env`, then `sail up -d`.
 - **"Permission denied" writing to `storage/` on Windows:** set `APP_USER=root` and

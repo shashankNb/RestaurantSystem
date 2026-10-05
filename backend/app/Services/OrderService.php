@@ -17,6 +17,7 @@ use App\Models\Restaurant;
 use App\Models\User;
 use App\Payments\PaymentGateway;
 use App\Payments\PaymentsUnavailable;
+use App\Payments\Square\SquareGateway;
 use Carbon\CarbonImmutable;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Support\Facades\Cache;
@@ -49,8 +50,12 @@ final class OrderService
         'out_for_delivery' => [OrderStatus::Completed, OrderStatus::Cancelled],
     ];
 
+    /** After this long, an unpaid order whose payment can't be checked is cancelled anyway. */
+    private const CHECK_PAYMENT_FOR_HOURS = 24;
+
     public function __construct(
         private readonly PaymentGateway $payments,
+        private readonly SquareGateway $square,
         private readonly OpeningHoursService $hours,
     ) {}
 
@@ -197,10 +202,36 @@ final class OrderService
         });
     }
 
+    public function reconcilePayment(Order $order): Order
+    {
+        if ($order->status !== OrderStatus::PendingPayment || $order->payment_status === PaymentStatus::Paid) {
+            return $order;
+        }
+
+        $order->loadMissing('restaurant');
+
+        if ($order->payment_processor === PaymentProcessor::Stripe && $order->stripe_payment_intent_id !== null) {
+            $intent = $this->payments->retrievePaymentIntent($order);
+
+            return $intent->status === 'succeeded' ? $this->markPaid($order, $intent->id, $intent->amountCents) : $order;
+        }
+
+        if ($order->payment_processor === PaymentProcessor::Square && $order->square_payment_id !== null) {
+            $payment = $this->square->payment($order);
+
+            return $payment->completed() ? $this->markPaid($order, $payment->id, $payment->amountCents) : $order;
+        }
+
+        return $order;
+    }
+
     /**
      * An unpaid checkout that timed out: cancel it, and stop its Stripe PaymentIntent from
-     * being paid later. (If it's paid anyway, markPaid refunds it.) A Square order whose
-     * payment is going through right now is left for the next run.
+     * being paid later. First Stripe or Square is asked whether it was paid after all (its
+     * webhook lost): then it goes to the kitchen instead. While they can't be asked, the order
+     * waits for the next run, so a paid customer is never left without their order or their
+     * money (after a day it's cancelled anyway). A Square order whose payment is going through
+     * right now is left for the next run too.
      */
     public function expireUnpaid(Order $order): Order
     {
@@ -212,23 +243,80 @@ final class OrderService
             }
 
             try {
-                return $this->cancel($order, null, 'Payment wasn’t completed in time.');
+                $checked = $this->checkBeforeCancelling($order);
+
+                if ($checked === null || $checked->status !== OrderStatus::PendingPayment) {
+                    return $checked ?? $order;
+                }
+
+                return $this->cancel($checked, null, 'Payment wasn’t completed in time.');
             } finally {
                 $lock->release();
             }
         }
 
-        $order = $this->cancel($order, null, 'Payment wasn’t completed in time.');
+        $checked = $this->checkBeforeCancelling($order);
 
-        if ($order->stripe_payment_intent_id !== null) {
-            try {
-                $this->payments->cancelPaymentIntent($order->loadMissing('restaurant'));
-            } catch (PaymentsUnavailable $exception) {
-                report($exception);
-            }
+        if ($checked === null || $checked->status !== OrderStatus::PendingPayment) {
+            return $checked ?? $order;
+        }
+
+        $order = $this->cancel($checked, null, 'Payment wasn’t completed in time.');
+        $this->stopPaymentIntent($order);
+
+        return $order;
+    }
+
+    /**
+     * Cancels an order still waiting for payment, from the back office. Stripe or Square is
+     * asked first: if the customer did pay (its webhook lost), the order is cancelled and
+     * refunded; otherwise its Stripe PaymentIntent is stopped so it can't be paid later.
+     *
+     * @throws PaymentsUnavailable when Stripe or Square can't be asked (nothing is cancelled)
+     */
+    public function cancelUnpaid(Order $order, User $by, string $reason): Order
+    {
+        $order = $this->reconcilePayment($order);
+        $order = $this->cancel($order, $by, $reason);
+
+        if ($order->payment_status !== PaymentStatus::Paid && $order->payment_status !== PaymentStatus::Refunded) {
+            $this->stopPaymentIntent($order);
         }
 
         return $order;
+    }
+
+    /**
+     * The order after asking whether it was paid, or null when that can't be found out right
+     * now and the order is young enough to wait for the next try.
+     */
+    private function checkBeforeCancelling(Order $order): ?Order
+    {
+        try {
+            return $this->reconcilePayment($order);
+        } catch (PaymentsUnavailable $exception) {
+            if ($order->created_at !== null && $order->created_at->gt(now()->subHours(self::CHECK_PAYMENT_FOR_HOURS))) {
+                report($exception);
+
+                return null;
+            }
+
+            return $order;
+        }
+    }
+
+    /** Stops an unpaid order's Stripe PaymentIntent from being paid later, if it has one. */
+    private function stopPaymentIntent(Order $order): void
+    {
+        if ($order->payment_processor !== PaymentProcessor::Stripe || $order->stripe_payment_intent_id === null) {
+            return;
+        }
+
+        try {
+            $this->payments->cancelPaymentIntent($order->loadMissing('restaurant'));
+        } catch (PaymentsUnavailable $exception) {
+            report($exception);
+        }
     }
 
     /**

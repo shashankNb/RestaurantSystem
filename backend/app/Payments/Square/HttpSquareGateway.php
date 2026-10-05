@@ -114,6 +114,25 @@ final class HttpSquareGateway implements SquareGateway
         );
     }
 
+    public function payment(Order $order): SquarePayment
+    {
+        if ($order->square_payment_id === null) {
+            throw PaymentsUnavailable::because(new RuntimeException("Order {$order->public_id} has no Square payment."));
+        }
+
+        $payment = $this->json($this->send(fn (): Response => $this->api($order->restaurant)->get('/v2/payments/'.rawurlencode($order->square_payment_id))))['payment'] ?? null;
+
+        if (! is_array($payment) || ! isset($payment['id'])) {
+            throw PaymentsUnavailable::because(new RuntimeException('Square answered without the payment.'));
+        }
+
+        return new SquarePayment(
+            id: (string) $payment['id'],
+            status: (string) ($payment['status'] ?? ''),
+            amountCents: (int) ($payment['amount_money']['amount'] ?? 0),
+        );
+    }
+
     public function refund(Order $order, string $idempotencyKey): string
     {
         if ($order->square_payment_id === null) {

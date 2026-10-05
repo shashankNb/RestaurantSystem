@@ -71,17 +71,18 @@ it('retries on the queue when processing an event fails', function () {
         ->and($order->fresh()?->status)->toBe(OrderStatus::PendingPayment);
 });
 
-it('rejects a request that isn’t signed by Stripe', function (Closure $send) {
+it('rejects a request that isn’t signed by Stripe, and says why', function (Closure $send, string $why) {
     $order = unpaidOrder($this->menu);
 
-    $send(StripeEvents::succeeded($order))->assertStatus(400);
+    $response = $send(StripeEvents::succeeded($order))->assertStatus(400);
 
-    expect($order->refresh()->status)->toBe(OrderStatus::PendingPayment)
+    expect($response->json('message'))->toContain($why)
+        ->and($order->refresh()->status)->toBe(OrderStatus::PendingPayment)
         ->and(StripeEvent::query()->count())->toBe(0);
 })->with([
-    'wrong secret' => [fn (array $event) => StripeEvents::send($event, secret: 'whsec_someone_else')],
-    'signed too long ago' => [fn (array $event) => StripeEvents::send($event, signedAt: time() - 600)],
-    'no signature' => [fn (array $event) => test()->postJson(StripeEvents::url($event), $event)],
+    'wrong secret' => [fn (array $event) => StripeEvents::send($event, secret: 'whsec_someone_else'), 'it doesn’t match this restaurant’s signing secret'],
+    'signed too long ago' => [fn (array $event) => StripeEvents::send($event, signedAt: time() - 600), 'more than 5 minutes from this server’s time'],
+    'no signature' => [fn (array $event) => test()->postJson(StripeEvents::url($event), $event), 'Missing Stripe-Signature header.'],
     'body changed after signing' => [function (array $event) {
         $body = (string) json_encode($event);
         $signedAt = time();
@@ -92,7 +93,7 @@ it('rejects a request that isn’t signed by Stripe', function (Closure $send) {
             'HTTP_STRIPE_SIGNATURE' => "t={$signedAt},v1={$signature}",
             'CONTENT_TYPE' => 'application/json',
         ], content: (string) json_encode($event));
-    }],
+    }, 'it doesn’t match this restaurant’s signing secret'],
 ]);
 
 it('processes a replayed event only once', function () {

@@ -74,7 +74,10 @@ it('acts on each event once', function () {
 });
 
 it('refuses an event the restaurant’s Square application didn’t sign', function () {
-    squareEvent($this->menu->restaurant, squarePaymentEvent($this->order), signature: base64_encode('forged'))->assertBadRequest();
+    $response = squareEvent($this->menu->restaurant, squarePaymentEvent($this->order), signature: base64_encode('forged'))->assertBadRequest();
+
+    // Square signs the URL too: the answer says which one it must be.
+    expect($response->json('message'))->toContain('isn’t exactly '.SquareWebhookController::notificationUrl($this->menu->restaurant));
 
     // Without a signature key, nothing is accepted.
     $this->menu->restaurant->forceFill(['square_webhook_signature_key' => null])->save();

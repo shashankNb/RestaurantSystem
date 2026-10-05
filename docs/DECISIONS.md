@@ -1003,3 +1003,20 @@ hours) and the account endpoints.
     plugin pins the Kotlin Gradle plugin, so a small local config plugin
     (`plugins/with-kotlin-version.js`) sets Expo's `android.kotlinVersion` to match, rather than
     adding a package for one property.
+
+### Orders stuck waiting for payment
+
+256. **A lost webhook doesn't strand an order.** While the customer's order page waits on
+    "Confirming your payment", `GET /orders/{id}` also asks Stripe (the PaymentIntent) or
+    Square (the payment) whether it was paid, at most every 10 seconds per order, and a paid
+    order goes to the kitchen as the webhook would have sent it. Only orders someone is
+    watching are checked, so abandoned checkouts cost no calls.
+257. **Unpaid orders are only cancelled once the provider says they weren't paid.** The
+    30-minute expiry asks first; a paid order is placed instead. While Stripe or Square can't be
+    asked, the order waits for the next run (for up to a day), so a customer is never charged
+    without an order or a refund.
+258. **The back office can deal with an order awaiting payment:** **Check payment** asks the
+    provider now; **Cancel** asks first, then cancels, refunding the customer if they had paid.
+    If the provider can't be asked, nothing is cancelled.
+259. **A refused webhook is logged** with the restaurant and the reason, so a signing secret that
+    doesn't match the back office's shows up.

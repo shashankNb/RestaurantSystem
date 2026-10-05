@@ -72,7 +72,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   web: {
     // Pages are rendered on the server for each request (EAS Hosting runs it), so the
     // menu that search engines and link previews see is always the current one.
-    output: "server",
+    output: "single",
     favicon: asset("favicon.png"),
     shortName: brand.shortName,
     lang: "en-AU",
