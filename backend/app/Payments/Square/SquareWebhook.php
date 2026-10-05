@@ -36,7 +36,9 @@ final class SquareWebhook
         $expected = base64_encode(hash_hmac('sha256', $this->notificationUrl.$payload, $this->signatureKey, true));
 
         if (! hash_equals($expected, $signature)) {
-            throw new InvalidWebhook('The webhook signature is invalid.');
+            // Square signs the subscription's URL too, so a URL that differs at all (http for
+            // https, another host) fails just like a wrong key.
+            throw new InvalidWebhook("The webhook signature is invalid: it doesn’t match this restaurant’s signature key, or the subscription’s URL isn’t exactly {$this->notificationUrl}.");
         }
 
         $event = json_decode($payload, true);

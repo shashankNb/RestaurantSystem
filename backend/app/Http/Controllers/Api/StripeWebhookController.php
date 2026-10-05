@@ -11,6 +11,7 @@ use App\Payments\StripeWebhook;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -30,6 +31,10 @@ class StripeWebhookController extends Controller
         try {
             $event = $webhook->verify($request->getContent(), $request->header('Stripe-Signature'));
         } catch (InvalidWebhook $exception) {
+            // Usually a signing secret that doesn't match the one in the back office: its orders
+            // would wait for payment until checked another way.
+            Log::warning('A Stripe webhook was refused.', ['restaurant' => $restaurant->slug, 'reason' => $exception->getMessage()]);
+
             return response()->json(['message' => $exception->getMessage()], 400);
         }
 

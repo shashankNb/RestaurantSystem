@@ -33,8 +33,23 @@ final class StripeWebhook
 
         try {
             return Webhook::constructEvent($payload, $signatureHeader, $this->signingSecret, self::TOLERANCE_SECONDS);
-        } catch (SignatureVerificationException|UnexpectedValueException $exception) {
-            throw new InvalidWebhook('The webhook signature is invalid.', previous: $exception);
+        } catch (SignatureVerificationException $exception) {
+            throw new InvalidWebhook(self::reason($exception->getMessage()), previous: $exception);
+        } catch (UnexpectedValueException $exception) {
+            throw new InvalidWebhook('The webhook body isn’t a Stripe event.', previous: $exception);
         }
+    }
+
+    /**
+     * Why the signature was refused, from Stripe's own reason, in words that say what to fix.
+     * Stripe shows this answer next to the failed delivery, and it's logged.
+     */
+    private static function reason(string $stripeReason): string
+    {
+        return match (true) {
+            str_contains($stripeReason, 'No signatures found matching the expected signature') => 'The webhook signature is invalid: it doesn’t match this restaurant’s signing secret. Copy this endpoint’s signing secret from Stripe into Restaurant settings → Payments → Stripe.',
+            str_contains($stripeReason, 'Timestamp outside the tolerance zone') => 'The webhook signature is invalid: it was made more than 5 minutes from this server’s time. Check the server’s clock.',
+            default => 'The webhook signature is invalid: the Stripe-Signature header isn’t in Stripe’s format.',
+        };
     }
 }

@@ -49,6 +49,14 @@ interface SquareGateway
     public function charge(Order $order, string $sourceId, ?string $verificationToken, string $idempotencyKey): SquarePayment;
 
     /**
+     * The order's Square payment (square_payment_id) as Square has it now: for an order whose
+     * payment answer, or webhook, went astray.
+     *
+     * @throws PaymentsUnavailable
+     */
+    public function payment(Order $order): SquarePayment;
+
+    /**
      * Refunds the order's payment in full and returns the refund's ID.
      *
      * @throws PaymentsUnavailable

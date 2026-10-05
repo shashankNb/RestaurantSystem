@@ -6,6 +6,7 @@ use App\Enums\PaymentStatus;
 use App\Mail\OrderCancelled;
 use App\Models\Order;
 use App\Payments\PaymentGateway;
+use App\Payments\PaymentIntent;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -25,6 +26,7 @@ beforeEach(function () {
 describe('unpaid checkouts', function () {
     it('cancels checkouts still unpaid after 30 minutes, and their PaymentIntents', function () {
         $stale = Order::factory()->for($this->menu->restaurant)->create(['stripe_payment_intent_id' => 'pi_stale', 'created_at' => now()->subMinutes(31)]);
+        $this->payments->intents['pi_stale'] = new PaymentIntent('pi_stale', 'pi_stale_secret', 'requires_payment_method', $stale->total_cents);
         $recent = Order::factory()->for($this->menu->restaurant)->create(['created_at' => now()->subMinutes(20)]);
         $paid = Order::factory()->for($this->menu->restaurant)->placed()->create(['created_at' => now()->subHour()]);
 
