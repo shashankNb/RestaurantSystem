@@ -99,7 +99,9 @@ Under **Stripe**, Payments shows the webhook address to use.
 1. In Stripe, **Developers → API keys**: paste the publishable key (`pk_…`) and the secret key
    (`sk_…`). The back office refuses keys pasted the wrong way round, or a mix of test and live
    keys.
-2. In Stripe, **Developers → Webhooks → Add endpoint**:
+2. In Stripe, **Workbench → Webhooks → Add destination**, with **Snapshot** events and a webhook
+   endpoint (not thin events: payment events only come as snapshots, and the app reads the
+   PaymentIntent from them):
    - use the webhook URL shown in Payments (`https://api…/api/v1/stripe/webhook/<link-name>`);
    - choose the events `payment_intent.succeeded` and `payment_intent.payment_failed`;
    - paste the endpoint's signing secret (`whsec_…`) into Payments.

@@ -167,7 +167,7 @@ class EditRestaurantSettings extends EditTenantProfile
                     TextEntry::make('stripe_webhook_url')
                         ->label('Webhook URL')
                         ->state(fn (): string => route('stripe.webhook', ['restaurant' => $this->restaurant()]))
-                        ->helperText('In Stripe (Developers → Webhooks), add an endpoint with this URL and the events payment_intent.succeeded and payment_intent.payment_failed.')
+                        ->helperText('In Stripe (Workbench → Webhooks), add a destination with Snapshot events, this URL, and the events payment_intent.succeeded and payment_intent.payment_failed.')
                         ->copyable(),
                     TextInput::make('stripe_webhook_secret')
                         ->label('Webhook signing secret')
