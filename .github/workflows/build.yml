@@ -53,7 +53,7 @@ jobs:
           key: ${{ secrets.HOSTINGER_SSH_KEY }}
           port: ${{ secrets.HOSTINGER_PORT }}
           source: "app/dist/*"
-          target: "/home/u591891870/domains/plexuslogics.com/foodhub/app/dist"
+          target: "~/domains/plexuslogics.com/public_html/foodhub/app/dist"
           exclude: |
             **/.git*
             **/.github*
