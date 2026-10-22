@@ -46,7 +46,7 @@ jobs:
         run: npx expo export --platform web
 
       - name: Deploy via SSH to Hostinger
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOSTINGER_HOST }}
           username: ${{ secrets.HOSTINGER_USERNAME }}
