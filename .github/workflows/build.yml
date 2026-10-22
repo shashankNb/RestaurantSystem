@@ -3,7 +3,7 @@ name: Build & Deploy FoodHub to Hostinger
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   build-deploy:
