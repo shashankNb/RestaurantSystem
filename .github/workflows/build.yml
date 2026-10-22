@@ -43,7 +43,7 @@ jobs:
       # npx expo export --platform web and copy it into app/dist
       - name: Build React app
         working-directory: ./app
-        run: npx expo export --platform web
+        run: npx expo export --platform web --clear
 
       - name: Deploy via SSH to Hostinger
         uses: appleboy/scp-action@v0.1.7
@@ -55,7 +55,7 @@ jobs:
           source: "app/dist/*"
           target: "~/domains/plexuslogics.com/public_html/foodhub/app/dist"
           strip_components: 2
-          overwrite: true
+          rm: true
           exclude: |
             **/.git*
             **/.github*
