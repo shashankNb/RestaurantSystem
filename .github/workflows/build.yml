@@ -54,9 +54,6 @@ jobs:
           port: ${{ secrets.HOSTINGER_PORT }}
           source: "app/dist/*"
           target: "/home/<ssh-user>/domains/plexuslogics.com/public_html/foodhub/app/dist"
-          strip_components: 2
-          rm: true
-          dangerous-clean-slate: true
           exclude: |
             **/.git*
             **/.github*
