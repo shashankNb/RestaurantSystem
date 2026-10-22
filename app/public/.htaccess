@@ -1,0 +1,61 @@
+# ----------------------------------------------------------------------
+# 1. CUSTOM ERROR PAGE
+# ----------------------------------------------------------------------
+# Handles true 404 requests (e.g. missing static assets)
+ErrorDocument 404 /404.html
+
+# Prevent directory browsing
+Options -Indexes
+
+# ----------------------------------------------------------------------
+# 2. REACT NATIVE WEB ROUTING (SPA FALLBACK)
+# ----------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # 1. Force HTTPS
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+    # 2. Serve static files (images, JS, CSS, fonts) or custom 404.html directly if requested
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # 3. Fallback: Route all other requests to React Native Web index.html
+    # so client-side routers (React Router, Expo Router) handle navigation
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 3. SECURITY HEADERS
+# ----------------------------------------------------------------------
+<IfModule mod_headers.c>
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-XSS-Protection "1; mode=block"
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 4. CACHING & PERFORMANCE
+# ----------------------------------------------------------------------
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # Never cache main HTML file to ensure users get latest deployment
+    ExpiresByType text/html "access plus 0 seconds"
+    
+    # Cache bundled React Native JS/CSS assets for performance
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType text/css "access plus 1 year"
+    
+    # Media & Fonts
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/webp "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType font/ttf "access plus 1 year"
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+</IfModule>

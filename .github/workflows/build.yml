@@ -1,0 +1,63 @@
+name: Build & Deploy FoodHub to Hostinger
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Pull everything from Github Repo
+      - name: 🚀 SSH into Server and pull latest code
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PLEXUS_MIGRATION_BACKEND_HOST }}
+          username: ${{ secrets.PLEXUS_MIGRATION_BACKEND_USERNAME }}
+          key: ${{ secrets.PLEXUS_MIGRATION_BACKEND_SSH }}
+          port: ${{ secrets.PLEXUS_MIGRATION_BACKEND_PORT }}
+          script: |
+            cd ~/domains/plexuslogics.com/public_html/foodhub
+            echo "🔄 Pulling latest changes..."
+            git fetch origin main
+            git reset --hard origin/main
+            echo "✅ Deployment successful at $(date)"
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./app
+        run: |
+          npm install
+     
+      # npx expo export --platform web and copy it into app/dist
+      - name: Build React app
+        working-directory: ./app
+        run: npx expo export --platform web
+
+      - name: Deploy via SSH to Hostinger
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PLEXUS_MIGRATION_BACKEND_HOST }}
+          username: ${{ secrets.PLEXUS_MIGRATION_BACKEND_USERNAME }}
+          key: ${{ secrets.PLEXUS_MIGRATION_BACKEND_SSH }}
+          port: ${{ secrets.PLEXUS_MIGRATION_BACKEND_PORT }}
+          source: "app/dist/*"
+          target: "/home/<ssh-user>/domains/plexuslogics.com/public_html/foodhub/app/dist"
+          strip_components: 2
+          rm: true
+          dangerous-clean-slate: true
+          exclude: |
+            **/.git*
+            **/.github*
+            **/node_modules/**
