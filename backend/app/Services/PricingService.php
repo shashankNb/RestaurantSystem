@@ -8,6 +8,7 @@ use App\Data\Quote;
 use App\Data\QuoteError;
 use App\Data\QuoteLine;
 use App\Delivery\CourierUnavailable;
+use App\Delivery\DoorDash\DoorDashKeyRejected;
 use App\Delivery\DoorDash\DoorDashRefused;
 use App\Enums\Courier;
 use App\Enums\DoorDashFee;
@@ -108,7 +109,9 @@ final class PricingService
      * Delivery by DoorDash: the fee, whether it's still waiting for the address, and any
      * problem. The cart knows only the postcode, so DoorDash prices (or, when customers pay the
      * zone's fee, checks) the address once checkout sends it. If DoorDash can't be asked,
-     * delivery can't be ordered: nobody would come for it.
+     * delivery can't be ordered: nobody would come for it. The customer is only told to check
+     * the address when DoorDash's refusal is about the address; one about the restaurant's
+     * details, or its key, is the restaurant's to fix (CourierService logs DoorDash's reason).
      *
      * @return array{0: int, 1: bool, 2: ?QuoteError}
      */
@@ -116,6 +119,7 @@ final class PricingService
     {
         $quoted = $restaurant->doordash_fee === DoorDashFee::Quote;
         $unpriced = $quoted ? 0 : $zone->fee_cents;
+        $deliveryOff = new QuoteError('fulfilment_unavailable', 'We’re not taking delivery orders at the moment. Choose pickup instead.', 'fulfilment_type');
 
         if ($cart->address === null || ! $cart->address->isComplete()) {
             return [$unpriced, $quoted, null];
@@ -123,12 +127,14 @@ final class PricingService
 
         try {
             $fee = $this->couriers->price($restaurant, $cart->address, $orderValue);
-        } catch (DoorDashRefused) {
-            return [$unpriced, false, new QuoteError(
+        } catch (DoorDashRefused $refused) {
+            return [$unpriced, false, $refused->isAboutDropoff() ? new QuoteError(
                 'not_deliverable',
                 'DoorDash can’t deliver to this address. Check the street address and suburb, or choose pickup.',
                 'delivery.line1',
-            )];
+            ) : $deliveryOff];
+        } catch (DoorDashKeyRejected) {
+            return [$unpriced, false, $deliveryOff];
         } catch (CourierUnavailable) {
             return [$unpriced, $quoted, new QuoteError(
                 'delivery_unavailable',

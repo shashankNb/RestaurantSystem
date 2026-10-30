@@ -1114,3 +1114,15 @@ hours) and the account endpoints.
     empty cart, the menu has the whole width. A saved cart fills in after the page's first
     render, on the server and in the browser alike, so the panel appears once it has loaded,
     without a hydration mismatch.
+279. **DoorDash's refusals say whose problem they are, and why.**
+    - The customer is asked to check their address only when DoorDash's refusal is about it:
+      every field DoorDash named is part of the drop-off, or it named none and refused for a
+      logical reason (422, such as an address outside its coverage).
+    - Any other refusal says delivery isn't available right now (`fulfilment_unavailable`), since
+      only the restaurant can put it right. That covers the restaurant's own details (its
+      address or phone), a malformed request, and a key DoorDash doesn't accept.
+    - DoorDash's reason is logged ("DoorDash refused to price a delivery.", with the address).
+      `php artisan doordash:quote <link-name> "<address>"` shows what DoorDash is asked and what
+      it answers.
+    - Only an address refusal is remembered, and for a minute rather than 264's four, so a fix
+      on DoorDash's side (setting the sandbox up for Australia, say) shows straight away.

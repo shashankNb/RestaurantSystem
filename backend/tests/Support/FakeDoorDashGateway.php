@@ -37,8 +37,11 @@ final class FakeDoorDashGateway implements DoorDashGateway
     /** DoorDash doesn't accept the access key. */
     public bool $rejectKey = false;
 
-    /** DoorDash's reason for refusing the next quote, as for an address it can't reach. */
-    public ?string $refuseNextQuote = null;
+    /**
+     * DoorDash refusing the next quote: its reason, as for an address it can't reach (a 422
+     * about the drop-off address), or the refusal itself.
+     */
+    public DoorDashRefused|string|null $refuseNextQuote = null;
 
     /** Accepting a quote fails, as if it had expired. */
     public bool $refuseAccept = false;
@@ -58,10 +61,10 @@ final class FakeDoorDashGateway implements DoorDashGateway
         $id = (string) $delivery['external_delivery_id'];
 
         if ($this->refuseNextQuote !== null) {
-            $reason = $this->refuseNextQuote;
+            $refusal = $this->refuseNextQuote;
             $this->refuseNextQuote = null;
 
-            throw new DoorDashRefused(422, $reason, 'dropoff_address');
+            throw $refusal instanceof DoorDashRefused ? $refusal : new DoorDashRefused(422, $refusal, 'dropoff_address', ['dropoff_address' => $refusal]);
         }
 
         if (isset($this->deliveries[$id])) {

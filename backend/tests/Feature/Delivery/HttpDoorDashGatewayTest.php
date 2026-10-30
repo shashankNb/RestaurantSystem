@@ -97,9 +97,34 @@ it('passes on DoorDash refusing a delivery, with its reason', function () {
     } catch (DoorDashRefused $refused) {
         expect($refused->status)->toBe(422)
             ->and($refused->field)->toBe('dropoff_address')
-            ->and($refused->getMessage())->toBe('dropoff_address: Address is outside of the coverage area');
+            ->and($refused->fieldErrors)->toBe(['dropoff_address' => 'Address is outside of the coverage area'])
+            ->and($refused->getMessage())->toBe('dropoff_address: Address is outside of the coverage area')
+            ->and($refused->isAboutDropoff())->toBeTrue();
     }
 });
+
+it('tells a refusal about the address from one about the restaurant or the request', function (int $status, array $body, string $reason, bool $aboutDropoff) {
+    Http::fake(['openapi.doordash.com/*' => Http::response($body, $status)]);
+
+    try {
+        $this->gateway->quote($this->restaurant, ['external_delivery_id' => 'order-1']);
+        $this->fail('DoorDash refused it.');
+    } catch (DoorDashRefused $refused) {
+        expect($refused->getMessage())->toBe($reason)
+            ->and($refused->isAboutDropoff())->toBe($aboutDropoff);
+    }
+})->with([
+    'too far, naming no field' => [422, ['code' => 'unprocessable_entity', 'message' => 'Allowed distance between addresses exceeded'], 'Allowed distance between addresses exceeded', true],
+    'the customer’s phone' => [400, ['message' => 'Validation Failed', 'field_errors' => [['field' => 'dropoff_phone_number', 'error' => 'Invalid phone number']]], 'dropoff_phone_number: Invalid phone number', true],
+    'the restaurant’s phone' => [400, ['message' => 'Validation Failed', 'field_errors' => [['field' => 'pickup_phone_number', 'error' => 'Invalid phone number']]], 'pickup_phone_number: Invalid phone number', false],
+    'both addresses' => [
+        400,
+        ['message' => 'Validation Failed', 'field_errors' => [['field' => 'dropoff_address', 'error' => 'Not found'], ['field' => 'pickup_address', 'error' => 'Not supported']]],
+        'dropoff_address: Not found; pickup_address: Not supported',
+        false,
+    ],
+    'a malformed request, naming no field' => [400, ['message' => 'Validation Failed'], 'Validation Failed', false],
+]);
 
 it('tells a refusal from DoorDash being unreachable or the key not working', function (int $status, string $exception) {
     Http::fake(['openapi.doordash.com/*' => Http::response(['message' => 'Nope'], $status)]);

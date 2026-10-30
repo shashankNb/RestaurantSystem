@@ -1,10 +1,12 @@
 <?php
 
 use App\Delivery\DoorDash\DoorDashGateway;
+use App\Delivery\DoorDash\DoorDashRefused;
 use App\Enums\Courier;
 use App\Enums\DoorDashFee;
 use App\Models\Order;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\FakeDoorDashGateway;
 use Tests\Support\MomoMenu;
@@ -69,6 +71,69 @@ it('says when DoorDash can’t deliver to the address', function () {
             'message' => 'DoorDash can’t deliver to this address. Check the street address and suburb, or choose pickup.',
             'field' => 'delivery.line1',
         ]);
+});
+
+it('doesn’t blame the address when DoorDash objects to the restaurant’s own details, and logs why', function () {
+    Log::spy();
+    $this->doordash->refuseNextQuote = new DoorDashRefused(400, 'pickup_phone_number: Invalid phone number', 'pickup_phone_number', ['pickup_phone_number' => 'Invalid phone number']);
+
+    deliveryQuote($this->menu)
+        ->assertJsonPath('data.can_place_order', false)
+        ->assertJsonPath('data.errors.0', [
+            'code' => 'fulfilment_unavailable',
+            'message' => 'We’re not taking delivery orders at the moment. Choose pickup instead.',
+            'field' => 'fulfilment_type',
+        ]);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context): bool => $message === 'DoorDash refused to price a delivery.'
+            && $context['status'] === 400
+            && $context['reason'] === 'pickup_phone_number: Invalid phone number'
+            && $context['address'] === '12 Southbank Boulevard, Southbank VIC 3006, Australia')
+        ->once();
+
+    // Not remembered: once put right, delivery works straight away.
+    deliveryQuote($this->menu)->assertJsonPath('data.can_place_order', true);
+});
+
+it('remembers an address DoorDash can’t deliver to for a minute', function () {
+    $this->doordash->refuseNextQuote = 'dropoff_address: Address is outside of the coverage area';
+
+    deliveryQuote($this->menu)->assertJsonPath('data.errors.0.code', 'not_deliverable');
+    deliveryQuote($this->menu)->assertJsonPath('data.errors.0.code', 'not_deliverable');
+
+    expect($this->doordash->quotes)->toHaveCount(1);
+
+    $this->travel(61)->seconds();
+    deliveryQuote($this->menu)->assertJsonPath('data.can_place_order', true);
+});
+
+it('takes no delivery orders while DoorDash doesn’t accept the restaurant’s key', function () {
+    $this->doordash->rejectKey = true;
+
+    deliveryQuote($this->menu)
+        ->assertJsonPath('data.errors.0.code', 'fulfilment_unavailable')
+        ->assertJsonPath('data.errors.0.field', 'fulfilment_type');
+});
+
+it('shows what DoorDash says about an address, from the command line', function () {
+    $address = '12 Southbank Boulevard, Southbank VIC 3006, Australia';
+
+    $this->artisan('doordash:quote', ['restaurant' => $this->menu->restaurant->slug, 'address' => $address])
+        // The request is printed as one block, which one expectation reads.
+        ->expectsOutputToContain('"dropoff_address": "12 Southbank Boulevard, Southbank VIC 3006, Australia"')
+        ->expectsOutputToContain('DoorDash would deliver it for $9.75.')
+        ->assertSuccessful();
+
+    $this->doordash->refuseNextQuote = new DoorDashRefused(422, 'Allowed distance between addresses exceeded');
+
+    $this->artisan('doordash:quote', ['restaurant' => $this->menu->restaurant->slug, 'address' => $address])
+        ->expectsOutputToContain('DoorDash refused it (422): Allowed distance between addresses exceeded')
+        ->assertFailed();
+
+    $this->artisan('doordash:quote', ['restaurant' => 'no-such-place', 'address' => $address])
+        ->expectsOutputToContain('There’s no restaurant with that link name.')
+        ->assertFailed();
 });
 
 it('takes no delivery orders while DoorDash can’t be asked, since nobody would come', function () {

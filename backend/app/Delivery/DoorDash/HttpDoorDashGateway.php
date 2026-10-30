@@ -111,7 +111,9 @@ final class HttpDoorDashGateway implements DoorDashGateway
         }
 
         if (in_array($response->status(), [400, 404, 409, 422], true)) {
-            throw new DoorDashRefused($response->status(), self::reason($response), self::field($response));
+            $fieldErrors = self::fieldErrors($response);
+
+            throw new DoorDashRefused($response->status(), self::reason($response), array_key_first($fieldErrors), $fieldErrors);
         }
 
         $exception = new RuntimeException("DoorDash answered {$response->status()}: ".self::reason($response));
@@ -122,14 +124,20 @@ final class HttpDoorDashGateway implements DoorDashGateway
             : CourierUnavailable::because($exception);
     }
 
-    /** DoorDash's explanation: the first field it objected to, or its message. */
+    /**
+     * DoorDash's explanation: each field it objected to and why, or else its message
+     * ("Allowed distance between addresses exceeded").
+     */
     private static function reason(Response $response): string
     {
-        $field = self::field($response);
-        $error = $response->json('field_errors.0.error');
+        $fieldErrors = self::fieldErrors($response);
 
-        if (is_string($error) && $error !== '') {
-            return $field === null ? $error : "{$field}: {$error}";
+        if ($fieldErrors !== []) {
+            return implode('; ', array_map(
+                fn (string $field, string $error): string => "{$field}: {$error}",
+                array_keys($fieldErrors),
+                $fieldErrors,
+            ));
         }
 
         $message = $response->json('message');
@@ -137,10 +145,25 @@ final class HttpDoorDashGateway implements DoorDashGateway
         return is_string($message) && $message !== '' ? $message : "HTTP {$response->status()}";
     }
 
-    private static function field(Response $response): ?string
+    /**
+     * DoorDash's field_errors, by field: [{"field": "dropoff_address", "error": "…"}].
+     *
+     * @return array<string, string>
+     */
+    private static function fieldErrors(Response $response): array
     {
-        $field = $response->json('field_errors.0.field');
+        $errors = $response->json('field_errors');
+        $byField = [];
 
-        return is_string($field) && $field !== '' ? $field : null;
+        foreach (is_array($errors) ? $errors : [] as $error) {
+            $field = is_array($error) ? ($error['field'] ?? null) : null;
+            $message = is_array($error) ? ($error['error'] ?? null) : null;
+
+            if (is_string($field) && $field !== '') {
+                $byField[$field] = is_string($message) ? $message : '';
+            }
+        }
+
+        return $byField;
     }
 }

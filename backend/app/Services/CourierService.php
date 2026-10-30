@@ -41,6 +41,9 @@ final class CourierService
     /** How long a DoorDash price is reused, inside the 5 minutes DoorDash honours a quote. */
     private const PRICE_MINUTES = 4;
 
+    /** How long DoorDash refusing an address is remembered, so checkout doesn't keep asking. */
+    private const REFUSAL_MINUTES = 1;
+
     /** A booking with no answer after this long, that DoorDash doesn't have, is given up on. */
     private const BOOKING_MINUTES = 5;
 
@@ -51,9 +54,10 @@ final class CourierService
 
     /**
      * What DoorDash charges, in cents, to deliver an order of this value from the restaurant to
-     * the address. Nothing is booked.
+     * the address. Nothing is booked. DoorDash's reason for any refusal is logged: the customer
+     * only hears that DoorDash can't deliver there.
      *
-     * @throws DoorDashRefused when DoorDash can't deliver there
+     * @throws DoorDashRefused when DoorDash won't price it
      * @throws CourierUnavailable
      */
     public function price(Restaurant $restaurant, DeliveryAddress $address, int $orderValueCents): int
@@ -66,19 +70,24 @@ final class CourierService
         }
 
         if (is_array($known) && is_string($known['refused'] ?? null)) {
-            throw new DoorDashRefused((int) ($known['status'] ?? 422), $known['refused']);
+            throw new DoorDashRefused(422, $known['refused']);
         }
 
         try {
-            $quote = $this->doordash->quote($restaurant, [
-                // Every quote needs an ID of its own; this one is never booked.
-                'external_delivery_id' => 'price-'.Str::lower((string) Str::ulid()),
-                ...$this->pickup($restaurant),
-                'dropoff_address' => $address->oneLine(),
-                'order_value' => $orderValueCents,
-            ]);
+            $quote = $this->doordash->quote($restaurant, $this->quoteRequest($restaurant, $address->oneLine(), $orderValueCents));
         } catch (DoorDashRefused $refused) {
-            Cache::put($key, ['refused' => $refused->getMessage(), 'status' => $refused->status], now()->addMinutes(self::PRICE_MINUTES));
+            Log::warning('DoorDash refused to price a delivery.', [
+                'restaurant' => $restaurant->slug,
+                'address' => $address->oneLine(),
+                'status' => $refused->status,
+                'reason' => $refused->getMessage(),
+            ]);
+
+            // An address DoorDash can't serve is remembered for a moment. A refusal about the
+            // restaurant's details isn't, so it can be put right straight away.
+            if ($refused->isAboutDropoff()) {
+                Cache::put($key, ['refused' => $refused->getMessage()], now()->addMinutes(self::REFUSAL_MINUTES));
+            }
 
             throw $refused;
         }
@@ -90,6 +99,23 @@ final class CourierService
         Cache::put($key, ['fee' => $quote->feeCents], now()->addMinutes(self::PRICE_MINUTES));
 
         return $quote->feeCents;
+    }
+
+    /**
+     * The quote that prices a delivery from the restaurant to an address, as DoorDash gets it
+     * (also for `doordash:quote`, which shows DoorDash's answer).
+     *
+     * @return array<string, mixed>
+     */
+    public function quoteRequest(Restaurant $restaurant, string $dropoffAddress, int $orderValueCents): array
+    {
+        return [
+            // Every quote needs an ID of its own; this one is never booked.
+            'external_delivery_id' => 'price-'.Str::lower((string) Str::ulid()),
+            ...$this->pickup($restaurant),
+            'dropoff_address' => $dropoffAddress,
+            'order_value' => $orderValueCents,
+        ];
     }
 
     /**

@@ -437,10 +437,10 @@ says how to fix it, and the `field` it concerns. Line errors also appear in that
 | `option_sold_out` | `items.N.modifier_option_ids` | A chosen option is sold out |
 | `too_few_options` | `items.N.modifier_option_ids` | Fewer choices in a group than its `min_select` |
 | `too_many_options` | `items.N.modifier_option_ids` | More choices in a group than its `max_select` |
-| `fulfilment_unavailable` | `fulfilment_type` | Pickup is switched off, or dine in is off or has no tables taking orders |
+| `fulfilment_unavailable` | `fulfilment_type` | Pickup is switched off, or dine in is off or has no tables taking orders; or DoorDash delivers and refuses the restaurant's own details (its address or phone) or its key (DoorDash's reason is logged) |
 | `unknown_table` | `table` | Dine in at a table the restaurant doesn't have, or has turned off |
 | `not_deliverable` | `postcode` | Delivery is off, or the postcode isn't in an active zone |
-| `not_deliverable` | `delivery.line1` | DoorDash delivers, and won't deliver to the address in `delivery` |
+| `not_deliverable` | `delivery.line1` | DoorDash delivers, and won't deliver to the address in `delivery`: its refusal is about the drop-off, or the address is outside its coverage (DoorDash's reason is logged) |
 | `delivery_unavailable` | `delivery.line1` | DoorDash delivers, and couldn't be asked about the address (nobody would come, so delivery can't be ordered); try again shortly |
 | `below_minimum` | `items` | The food subtotal is under the zone's minimum (before any discount) |
 | `closed` | `scheduled_for` | ASAP while outside opening hours; the message says when it next opens |

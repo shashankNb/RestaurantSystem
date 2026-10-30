@@ -231,10 +231,18 @@ office (Restaurant settings → **DoorDash**); nothing about DoorDash goes in `.
 with the demo restaurant:
 
 1. Sign in to DoorDash's [Developer Portal](https://developer.doordash.com) and create an access
-   key under **Credentials**. Copy its developer ID, key ID and signing secret (the secret is
-   shown only once). The key is a sandbox key until DoorDash approves the account for
-   production. DoorDash's sandbox is set up for the US: for Australian addresses, ask DoorDash
-   to set it up for Australia, through the portal's **Support** page.
+   key under **Credentials**, for the sandbox. Copy its developer ID, key ID and signing secret
+   before closing the window: DoorDash never shows the secret again. If a key's secret wasn't
+   copied, create a new key (and delete the old one). The portal's temporary JWTs don't replace
+   it: they last 30 minutes at most, and the API makes its own from the secret. The key is a
+   sandbox key until DoorDash approves the account for production. A new DoorDash account's
+   default store is in the US, and DoorDash only takes pickups in that store's country. Until
+   that store is in Australia, every quote is refused: "Pickup address must be in the same
+   country as the default store". There are two ways to move it to the restaurant's address:
+   - ask DoorDash through the portal's **Support** page;
+   - use DoorDash's Business & Store API, which worked in the sandbox: `PATCH
+     /developer/v1/businesses/default/stores/{external_store_id}` with `address` and
+     `phone_number` (`GET /developer/v1/businesses/default/stores` gives the store's ID).
 2. In the back office, Restaurant settings → DoorDash: paste the three values, switch on
    **Deliver with DoorDash**, choose what customers pay, and save. The back office checks the key
    with DoorDash. The restaurant needs a phone number under Details, for DoorDash's drivers.
@@ -256,6 +264,17 @@ a fake, and `HttpDoorDashGateway` is tested against faked responses.
 
 ### Troubleshooting
 
+- **DoorDash refuses every address** ("DoorDash can’t deliver to this address"):
+  - See why with `sail artisan doordash:quote <link-name> "12 Southbank Boulevard, Southbank VIC
+    3006, Australia"`. It shows what DoorDash is asked and what it answers, and books nothing.
+    Each refusal's reason is also logged, as "DoorDash refused to price a delivery.".
+  - The usual cause: "Pickup address must be in the same country as the default store". The
+    DoorDash account's default store is still the US one it started with (step 1 under DoorDash
+    (sandbox)). Ask DoorDash's support, from the portal, to move it to the restaurant's address.
+    Customers then see "We’re not taking delivery orders at the moment", since it's the
+    restaurant's to fix.
+  - DoorDash also needs the restaurant's address and phone (Restaurant settings → Details) to
+    be real ones.
 - **An order is stuck at "Awaiting payment" ("Confirming your payment" for the customer):** the
   payment provider's webhook didn't arrive.
   - **The customer's order page fixes it by itself.** While it waits, it asks Stripe or Square
