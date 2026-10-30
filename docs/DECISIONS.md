@@ -1106,3 +1106,11 @@ hours) and the account endpoints.
     - contactless drop-off and its photo;
     - alcohol, which DoorDash restricts (ID checks, `return_to_pickup`);
     - DoorDash's address components, which DoorDash has to switch on.
+
+## Later changes
+
+278. **The wide screen's cart panel shows only once something is in the cart**, like the "View
+    cart" bar on narrower screens (219 had it always there, saying the cart was empty). With an
+    empty cart, the menu has the whole width. A saved cart fills in after the page's first
+    render, on the server and in the browser alike, so the panel appears once it has loaded,
+    without a hydration mismatch.

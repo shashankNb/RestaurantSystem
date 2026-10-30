@@ -289,7 +289,7 @@ class EditRestaurantSettings extends EditTenantProfile
                         ->password()
                         ->revealable(false)
                         ->placeholder(fn (): string => $this->savedPlaceholder('doordash_signing_secret', 'Shown once, when you create the key'))
-                        ->helperText('Never shown again once saved.')
+                        ->helperText('DoorDash shows it only once, as you create the key: if you didn’t copy it, create a new key. Never shown here again once saved.')
                         // Left empty, the saved secret stays.
                         ->dehydrated(fn (?string $state): bool => filled($state))
                         ->maxLength(255),

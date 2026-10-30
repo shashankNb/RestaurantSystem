@@ -89,8 +89,9 @@ all-caps labels and no letter-spacing tricks.
   of description, price, a square photo on the right), separated by hairlines. A "View cart"
   bar stays at the bottom once something is in the cart. Without a cover photo, the header is
   a band of the brand colour carrying the name.
-- **From 1024 px:** categories on the left, the menu in the middle, the cart as a panel on the
-  right (no cart bar).
+- **From 1024 px:** categories on the left, the menu in the middle, and the cart as a panel on
+  the right once something is in it (no cart bar). With an empty cart, the menu has the whole
+  width.
 - **Item options:** a bottom sheet on phones, a dialog on the web. Photo large at the top; each
   rule next to its group name ("Required · choose 1"); the button shows the running price
   ("Add to cart · $20.90").
