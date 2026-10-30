@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, router } from 'expo-router';
 import type { Metadata } from 'expo-router/server';
 import { useRef, useState, type ReactNode } from 'react';
-import { useForm, type Path } from 'react-hook-form';
+import { useForm, useWatch, type Path } from 'react-hook-form';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { z } from 'zod';
 
@@ -20,10 +20,11 @@ import { TextField } from '@/components/text-field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useMe } from '@/lib/api/account';
 import { useAddresses, useSaveAddress } from '@/lib/api/addresses';
 import { ApiError, errorMessage } from '@/lib/api/client';
-import { cartRequest, useQuote } from '@/lib/api/ordering';
+import { cartRequest, useQuote, type DeliveryAddress } from '@/lib/api/ordering';
 import { orderQueryKey, usePlaceOrder, type OrderRequest } from '@/lib/api/orders';
 import { useRestaurant } from '@/lib/api/restaurant';
 import type { Checkout, Quote, SavedAddress, User } from '@/lib/api/schemas';
@@ -180,15 +181,25 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
   const placed = useRef<Checkout | null>(null);
 
   const dineIn = fulfilment === 'dine_in';
+  // DoorDash's drivers deliver: DoorDash prices or checks the street address, which goes with
+  // the quote once the customer stops typing, so DoorDash isn't asked at every keystroke.
+  const byDoorDash = delivery && restaurant?.fulfilment.delivery.courier === 'doordash';
+  const [line1, line2, suburb, state] = useWatch({ control: form.control, name: ['line1', 'line2', 'suburb', 'state'] });
+  const typedAddress = useDebouncedValue(JSON.stringify({ line1, line2, suburb, state }), 800);
   const request =
     (delivery && postcode === null) || (dineIn && table === null)
       ? null
-      : cartRequest({ lines, fulfilment, postcode, table, scheduledFor, promoCode });
+      : cartRequest({ lines, fulfilment, postcode, table, scheduledFor, promoCode, address: byDoorDash ? addressFrom(typedAddress) : null });
   const quote = useQuote(request);
   const currency = restaurant?.currency ?? 'AUD';
   const timeZone = restaurant?.timezone ?? 'Australia/Melbourne';
   const current = quote.data !== undefined && !quote.isPlaceholderData ? quote.data : null;
-  const ready = current?.can_place_order === true;
+  // With DoorDash's price, the order can only be placed once the address has priced it.
+  const feePending = current?.fulfilment.delivery_fee_pending === true;
+  const ready = current?.can_place_order === true && !feePending;
+  // An address DoorDash can't deliver to is shown with the address; the rest, with the payment.
+  const addressProblem = current?.errors.find((error) => error.field?.startsWith('delivery.')) ?? null;
+  const cartProblem = current?.errors.find((error) => !error.field?.startsWith('delivery.')) ?? null;
 
   const chooseSavedAddress = (saved: SavedAddress | null) => {
     setSavedAddressId(saved?.id ?? null);
@@ -399,7 +410,11 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
             control={form.control}
             name="phone"
             label="Mobile"
-            hint="In case the restaurant needs to reach you about this order."
+            hint={
+              byDoorDash
+                ? 'In case the restaurant or the DoorDash driver needs to reach you about this order.'
+                : 'In case the restaurant needs to reach you about this order.'
+            }
             autoComplete="tel"
             textContentType="telephoneNumber"
             keyboardType="phone-pad"
@@ -453,6 +468,7 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
               </View>
             </View>
             <Text className="text-muted-foreground">Postcode {postcode}, from your cart.</Text>
+            {addressProblem ? <Problem message={addressProblem.message} inCart={false} /> : null}
             <TextField
               control={form.control}
               name="instructions"
@@ -490,6 +506,7 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
             <OrderTotals
               subtotalCents={current.subtotal_cents}
               deliveryFeeCents={current.delivery_fee_cents}
+              deliveryFeePending={feePending}
               discountCents={current.discount_cents}
               totalCents={current.total_cents}
               gstCents={current.gst_cents}
@@ -502,8 +519,15 @@ function CheckoutForm({ user, onCompleting }: { user: User | undefined; onComple
           {request === null ? (
             <Problem message={dineIn ? 'Choose your table in your cart.' : 'Enter your delivery postcode in your cart.'} inCart />
           ) : null}
+          {current && feePending && current.can_place_order ? (
+            <Text variant="muted">Enter your delivery address to see the delivery fee.</Text>
+          ) : null}
           {current && !current.can_place_order ? (
-            <Problem message={current.errors[0]?.message ?? 'This order can’t be placed yet.'} inCart />
+            addressProblem && !cartProblem ? (
+              <Problem message="Check your delivery address above." inCart={false} />
+            ) : (
+              <Problem message={cartProblem?.message ?? 'This order can’t be placed yet.'} inCart />
+            )
           ) : null}
           {problem ? <Problem message={problem.message} inCart={problem.inCart} /> : null}
 
@@ -553,6 +577,14 @@ function Problem({ message, inCart }: { message: string; inCart: boolean }) {
       ) : null}
     </Alert>
   );
+}
+
+/** The typed street address, once there's enough of it for DoorDash to find. */
+function addressFrom(typed: string): DeliveryAddress | null {
+  const fields = JSON.parse(typed) as Partial<Record<'line1' | 'line2' | 'suburb' | 'state', string>>;
+  const [line1, line2, suburb, state] = [fields.line1, fields.line2, fields.suburb, fields.state].map((value) => (value ?? '').trim());
+
+  return line1 && suburb ? { line1, line2: line2 || null, suburb, state: state || null } : null;
 }
 
 /** "as soon as possible (about 25 min)" or "tomorrow at 6:30 pm". */

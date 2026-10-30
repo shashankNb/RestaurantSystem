@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\DoorDashFee;
 use App\Enums\PaymentProcessor;
 use App\Models\Restaurant;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -66,6 +67,22 @@ class RestaurantFactory extends Factory
             'square_merchant_name' => 'Kitchen on Square',
             'square_location_id' => 'LMAIN',
             'square_locations' => [['id' => 'LMAIN', 'name' => 'Main Street', 'currency' => 'AUD', 'active' => true]],
+        ]);
+    }
+
+    /**
+     * DoorDash's drivers deliver, booked with its own DoorDash sandbox access key (tests fake
+     * DoorDash; the webhook value is the one tests send).
+     */
+    public function doordash(DoorDashFee $fee = DoorDashFee::Zone): static
+    {
+        return $this->state([
+            'doordash_enabled' => true,
+            'doordash_fee' => $fee,
+            'doordash_developer_id' => (string) Str::uuid(),
+            'doordash_key_id' => (string) Str::uuid(),
+            'doordash_signing_secret' => rtrim(strtr(base64_encode(Str::random(32)), '+/', '-_'), '='),
+            'doordash_webhook_secret' => 'ddwh_test_secret',
         ]);
     }
 

@@ -211,7 +211,11 @@ function CartScreen() {
 
       <View className="bg-background border-border border-t px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
         <Button size="lg" className="w-full max-w-2xl self-center" disabled={!canCheckOut} onPress={() => router.push('/checkout')}>
-          <Text>{current ? `Check out · ${formatMoney(current.total_cents, currency)}` : 'Check out'}</Text>
+          <Text>
+            {current
+              ? `Check out · ${formatMoney(current.total_cents, currency)}${current.fulfilment.delivery_fee_pending ? ' + delivery' : ''}`
+              : 'Check out'}
+          </Text>
         </Button>
       </View>
     </Screen>
@@ -336,6 +340,7 @@ function Summary({
     <OrderTotals
       subtotalCents={quote.subtotal_cents}
       deliveryFeeCents={quote.delivery_fee_cents}
+      deliveryFeePending={quote.fulfilment.delivery_fee_pending}
       discountCents={quote.discount_cents}
       totalCents={quote.total_cents}
       gstCents={quote.gst_cents}

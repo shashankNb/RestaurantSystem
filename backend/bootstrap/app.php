@@ -1,5 +1,6 @@
 <?php
 
+use App\Delivery\CourierUnavailable;
 use App\Http\Middleware\AllowRestaurantOrigins;
 use App\Payments\PaymentDeclined;
 use App\Payments\PaymentsUnavailable;
@@ -56,6 +57,15 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // The payment provider is down, refused, or isn't configured: the app can retry.
         $exceptions->render(function (PaymentsUnavailable $exception, Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json(['message' => $exception->getMessage()], 503);
+            }
+
+            return null;
+        });
+
+        // DoorDash can't be reached, or doesn't accept the restaurant's key: the kitchen can retry.
+        $exceptions->render(function (CourierUnavailable $exception, Request $request) {
             if ($request->is('api/*')) {
                 return response()->json(['message' => $exception->getMessage()], 503);
             }

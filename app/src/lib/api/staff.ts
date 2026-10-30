@@ -108,6 +108,19 @@ export function useAdvanceOrder() {
   });
 }
 
+/**
+ * Books a DoorDash driver for a delivery order that has none: DoorDash refused the booking,
+ * called it off, or the driver brought it back. DoorDash answers straight away.
+ */
+export function useBookCourier() {
+  const updateQueue = useUpdateQueue();
+
+  return useMutation({
+    mutationFn: ({ order }: { order: StaffOrder }) => apiRequest(`${orderPath(order)}/courier`, { method: 'POST', schema: staffOrder }),
+    onSuccess: updateQueue,
+  });
+}
+
 /** Pauses or resumes online ordering. Shown straight away; put back if the API refuses. */
 export function useSetAcceptingOrders() {
   const queryClient = useQueryClient();

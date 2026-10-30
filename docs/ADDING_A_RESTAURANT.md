@@ -55,10 +55,33 @@ Signed in at `/admin`, the owner fills in:
 - **Opening hours** and **Holidays & special hours.** Until there are opening hours the
   restaurant shows as closed.
 - **Menu:** categories, items with photos, and options such as fillings and spice levels.
-- **Delivery zones,** if they deliver.
+- **Delivery zones,** if they deliver, and optionally **DoorDash** (below).
 - **Tables,** for ordering at the table. Print the QR codes after step 6, once the website's
   address is set.
 - **Staff,** for the kitchen screens, and **Promo codes.**
+
+### Delivery by DoorDash (optional)
+
+If the restaurant has no drivers of its own, DoorDash's can deliver its delivery orders,
+booked with its own DoorDash account and billed to it by DoorDash. In **Restaurant settings →
+DoorDash**, the owner:
+
+1. Pastes an access key from DoorDash's Developer Portal ([developer.doordash.com](https://developer.doordash.com),
+   **Credentials**): its developer ID, key ID and signing secret. The back office checks it
+   with DoorDash.
+2. Chooses what customers pay for delivery: the delivery zone's fee (DoorDash's charge is then
+   the restaurant's cost), or DoorDash's price for each address, shown at checkout.
+3. Switches on **Deliver with DoorDash**. It needs the restaurant's phone number (Details), for
+   DoorDash's drivers. The delivery zones still set where the restaurant delivers and the
+   minimum order.
+4. Adds the webhook in the portal (**Webhooks**, in the same environment as the key): the
+   **Webhook URL** shown under DoorDash, **Basic Auth**, and the **Webhook authorization**
+   value shown there.
+
+A sandbox key books test deliveries only. Real drivers need DoorDash to approve the
+restaurant's DoorDash account (**Request production access** in the portal, which leads to a
+demo of a whole delivery), then a production key and a production webhook. When a driver is
+booked, called off, or brings an order back, the kitchen screen says so and can book another.
 
 ## 3. Payments: the restaurant's own Stripe or Square account
 

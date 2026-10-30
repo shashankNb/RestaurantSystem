@@ -47,6 +47,13 @@ return [
         'version' => '2026-09-16',
     ],
 
+    // Each restaurant's owner enters its own DoorDash developer account's access key in the back
+    // office (Restaurant settings → DoorDash). Sandbox or real drivers depends on the key, not
+    // the address.
+    'doordash' => [
+        'url' => env('DOORDASH_URL', 'https://openapi.doordash.com'),
+    ],
+
     'expo' => [
         'push_url' => env('EXPO_PUSH_URL', 'https://exp.host/--/api/v2/push/send'),
         // Only needed if "enhanced push security" is on for the Expo project.

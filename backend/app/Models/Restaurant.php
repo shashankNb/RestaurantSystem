@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use App\Casts\Secret;
+use App\Enums\DoorDashFee;
 use App\Enums\PaymentProcessor;
 use App\Enums\RestaurantRole;
 use App\Enums\SquareEnvironment;
 use App\Payments\Square\SquareLocation;
 use App\Payments\WalletSetup;
+use App\Support\PhoneNumber;
 use App\Support\RestaurantOrigins;
 use Database\Factories\RestaurantFactory;
 use Filament\Models\Contracts\HasAvatar;
@@ -20,6 +22,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * The tenant. Everything a restaurant owns hangs off one of these relationships.
@@ -29,6 +32,7 @@ use Illuminate\Support\Facades\Storage;
  * @property PaymentProcessor $payment_processor
  * @property list<array<string, mixed>>|null $square_locations
  * @property array<string, mixed>|null $square_wallets
+ * @property DoorDashFee $doordash_fee
  */
 #[Fillable([
     'name',
@@ -41,6 +45,11 @@ use Illuminate\Support\Facades\Storage;
     'square_access_token',
     'square_webhook_signature_key',
     'square_location_id',
+    'doordash_enabled',
+    'doordash_fee',
+    'doordash_developer_id',
+    'doordash_key_id',
+    'doordash_signing_secret',
     'description',
     'timezone',
     'currency',
@@ -58,13 +67,30 @@ use Illuminate\Support\Facades\Storage;
     'default_prep_minutes',
     'auto_reject_minutes',
 ])]
-// Its own Stripe and Square accounts' secrets: never in a response, a log or an export.
-#[Hidden(['stripe_secret_key', 'stripe_webhook_secret', 'square_access_token', 'square_webhook_signature_key'])]
+// Its own Stripe, Square and DoorDash accounts' secrets: never in a response, a log or an export.
+#[Hidden([
+    'stripe_secret_key',
+    'stripe_webhook_secret',
+    'square_access_token',
+    'square_webhook_signature_key',
+    'doordash_signing_secret',
+    'doordash_webhook_secret',
+])]
 #[RouteKey('slug')]
 class Restaurant extends Model implements HasAvatar
 {
     /** @use HasFactory<RestaurantFactory> */
     use HasFactory;
+
+    /**
+     * The columns' defaults, so a restaurant made in code has them before it's read back.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'doordash_enabled' => false,
+        'doordash_fee' => 'zone',
+    ];
 
     protected static function booted(): void
     {
@@ -81,6 +107,12 @@ class Restaurant extends Model implements HasAvatar
 
             if ($restaurant->isDirty(['square_application_id', 'square_access_token']) && ! $restaurant->isDirty('square_wallets')) {
                 $restaurant->square_wallets = null;
+            }
+
+            // DoorDash's webhook gets an authorization value of its own once the access key is in,
+            // for the owner to give DoorDash (see DoorDashWebhookController).
+            if ($restaurant->doordashConfigured() && blank($restaurant->doordash_webhook_secret)) {
+                $restaurant->doordash_webhook_secret = 'ddwh_'.Str::random(40);
             }
         });
     }
@@ -101,6 +133,10 @@ class Restaurant extends Model implements HasAvatar
             'square_webhook_signature_key' => Secret::class,
             'square_locations' => 'array',
             'square_wallets' => 'array',
+            'doordash_enabled' => 'boolean',
+            'doordash_fee' => DoorDashFee::class,
+            'doordash_signing_secret' => Secret::class,
+            'doordash_webhook_secret' => Secret::class,
             'is_accepting_orders' => 'boolean',
             'pickup_enabled' => 'boolean',
             'delivery_enabled' => 'boolean',
@@ -267,6 +303,21 @@ class Restaurant extends Model implements HasAvatar
     public function squareEnvironment(): ?SquareEnvironment
     {
         return SquareEnvironment::fromApplicationId($this->square_application_id);
+    }
+
+    /** Its own DoorDash developer account's access key is in. */
+    public function doordashConfigured(): bool
+    {
+        return filled($this->doordash_developer_id) && filled($this->doordash_key_id) && filled($this->doordash_signing_secret);
+    }
+
+    /**
+     * DoorDash's drivers deliver its delivery orders: switched on, with its access key in and
+     * a phone number DoorDash accepts for its drivers to call.
+     */
+    public function deliversWithDoorDash(): bool
+    {
+        return $this->doordash_enabled && $this->doordashConfigured() && PhoneNumber::e164($this->phone) !== null;
     }
 
     /**

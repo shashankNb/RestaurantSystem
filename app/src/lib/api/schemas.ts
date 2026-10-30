@@ -37,6 +37,23 @@ export const specialHourSchema = z.object({
   note: z.string().nullable(),
 });
 
+/** Who delivers a delivery order other than the restaurant's own drivers. */
+export const courierSchema = z.enum(['doordash']);
+
+/** Where a courier's delivery is up to, as DoorDash reports it. */
+export const courierStatusSchema = z.enum([
+  'booked',
+  'driver_assigned',
+  'at_pickup',
+  'picked_up',
+  'at_dropoff',
+  'delivered',
+  'cancelled',
+  'returning',
+  'returned',
+  'failed',
+]);
+
 export const restaurantStatusSchema = z.object({
   is_open: z.boolean(),
   is_accepting_orders: z.boolean(),
@@ -62,7 +79,14 @@ export const restaurantSchema = z.object({
   status: restaurantStatusSchema,
   fulfilment: z.object({
     pickup: z.object({ enabled: z.boolean(), prep_minutes: z.number().int() }),
-    delivery: z.object({ enabled: z.boolean(), zones: z.array(deliveryZoneSchema) }),
+    delivery: z.object({
+      enabled: z.boolean(),
+      zones: z.array(deliveryZoneSchema),
+      /** DoorDash's drivers deliver (null: the restaurant's own). */
+      courier: courierSchema.nullable().default(null),
+      /** The fee is DoorDash's price for the address, known at checkout, not the zone's. */
+      fee_from_address: z.boolean().default(false),
+    }),
     dine_in: z.object({ enabled: z.boolean(), tables: z.array(z.string()) }),
   }),
   opening_hours: z.array(openingHourSchema),
@@ -192,6 +216,9 @@ export const quoteSchema = z.object({
     estimated_minutes: z.number().int(),
     delivery_zone: deliveryZoneSchema.nullable(),
     table: z.string().nullable(),
+    courier: courierSchema.nullable().default(null),
+    /** The fee comes with the address at checkout; until then it isn't in the totals. */
+    delivery_fee_pending: z.boolean().default(false),
   }),
   scheduled_for: z.string().nullable(),
   errors: z.array(quoteErrorSchema),
@@ -247,6 +274,16 @@ export const orderSchema = z.object({
   rejection_reason: z.string().nullable(),
   restaurant: z.object({ slug: z.string(), name: z.string(), phone: z.string().nullable() }),
   delivery: z.object({ suburb: z.string().nullable(), postcode: z.string().nullable() }).nullable(),
+  /** Delivered by DoorDash: its driver's progress and live map. */
+  courier: z
+    .object({
+      name: z.string(),
+      status: courierStatusSchema.nullable(),
+      driver_name: z.string().nullable(),
+      tracking_url: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
   items: z.array(orderItemSchema),
   subtotal_cents: z.number().int(),
   delivery_fee_cents: z.number().int(),
@@ -314,6 +351,19 @@ export const staffOrderSchema = z.object({
       instructions: z.string().nullable(),
     })
     .nullable(),
+  /** Delivered by DoorDash: its driver, its support reference, and why there's no driver. */
+  courier: z
+    .object({
+      name: z.string(),
+      status: courierStatusSchema.nullable(),
+      driver_name: z.string().nullable(),
+      tracking_url: z.string().nullable(),
+      support_reference: z.string().nullable(),
+      problem: z.string().nullable(),
+      can_book: z.boolean(),
+    })
+    .nullable()
+    .default(null),
   notes: z.string().nullable(),
   items: z.array(orderItemSchema),
   total_cents: z.number().int(),
@@ -357,3 +407,4 @@ export type OrderItem = z.infer<typeof orderItemSchema>;
 export type Checkout = z.infer<typeof checkoutSchema>;
 export type SavedAddress = z.infer<typeof savedAddressSchema>;
 export type StaffOrder = z.infer<typeof staffOrderSchema>;
+export type CourierStatus = z.infer<typeof courierStatusSchema>;

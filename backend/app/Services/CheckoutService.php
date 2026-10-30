@@ -152,6 +152,8 @@ final class CheckoutService
                 'delivery_state' => $delivery ? $customer->deliveryState : null,
                 'delivery_postcode' => $delivery ? $quote->cart->postcode : null,
                 'delivery_instructions' => $delivery ? $customer->deliveryInstructions : null,
+                // Who delivers it, kept with the order: a later change of settings doesn't move it.
+                'courier' => $delivery ? $quote->courier : null,
                 'dining_table_id' => $quote->table?->id,
                 'table_label' => $quote->table?->label,
                 'subtotal_cents' => $quote->subtotalCents,

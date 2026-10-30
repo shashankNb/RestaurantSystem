@@ -15,3 +15,6 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::command('orders:cancel-unpaid')->everyMinute()->withoutOverlapping();
 
 Schedule::command('orders:auto-reject')->everyMinute()->withoutOverlapping();
+
+// DoorDash's news that its webhook didn't bring (always, where DoorDash can't reach the API).
+Schedule::command('orders:sync-couriers')->everyMinute()->withoutOverlapping();

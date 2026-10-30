@@ -2,6 +2,7 @@
 
 namespace App\Data;
 
+use App\Enums\Courier;
 use App\Models\DeliveryZone;
 use App\Models\DiningTable;
 use App\Models\PromoCode;
@@ -31,6 +32,13 @@ final readonly class Quote
         public array $errors,
         /** Dine in: the table, when it's one of the restaurant's. */
         public ?DiningTable $table = null,
+        /** Delivery: the courier that delivers it, or null for the restaurant's own drivers. */
+        public ?Courier $courier = null,
+        /**
+         * The delivery fee is DoorDash's price for the address, which this cart didn't have yet:
+         * it's added at checkout, and isn't in these totals.
+         */
+        public bool $deliveryFeePending = false,
     ) {}
 
     public function canPlaceOrder(): bool

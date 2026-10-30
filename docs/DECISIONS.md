@@ -1020,3 +1020,89 @@ hours) and the account endpoints.
     If the provider can't be asked, nothing is cancelled.
 259. **A refused webhook is logged** with the restaurant and the reason, so a signing secret that
     doesn't match the back office's shows up.
+
+## DoorDash
+
+260. **DoorDash's drivers can deliver a restaurant's delivery orders** (DoorDash Drive, Drive API
+    v2), booked with the restaurant's own DoorDash developer account, like its Stripe and Square
+    accounts: the owner enters an access key (developer ID, key ID, signing secret) in the back
+    office, and DoorDash bills the restaurant. One platform account with DoorDash's Business &
+    Store API was considered; per-restaurant accounts keep the platform out of the money (225),
+    at the cost of each account needing DoorDash's approval for production (restricted, with no
+    timeline, at the time of writing). Restaurants sharing one DoorDash account aren't
+    supported yet: DoorDash wants business and store IDs for more than one location.
+261. **Each delivery order keeps its courier** (`orders.courier`), set when it's placed, so its
+    booking, updates and cancellation follow the order after the restaurant changes its
+    settings, as payments do (245). Null means the restaurant's own drivers, whose flow is
+    unchanged.
+262. **What customers pay is the owner's choice** (`doordash_fee`): the zone's fee, with
+    DoorDash's charge the restaurant's cost, or DoorDash's price for their address. Either way,
+    the zones still decide where the restaurant delivers and the minimum order.
+263. **DoorDash is asked about the address at checkout, before payment.** The cart knows only the
+    postcode; checkout sends the street address with its quote once the customer stops typing
+    (0.8 seconds), and the order request carries it as always. DoorDash requires that customers
+    are told when it refuses an address; the quote says so under the street address. With
+    DoorDash's price, the fee shows as "Priced from your address" until then, and checkout won't
+    take payment.
+264. **A DoorDash price is kept for 4 minutes** for each address and order value, inside the 5
+    minutes DoorDash honours a quote, so checkout's total and the order's agree. A refusal is
+    kept too. A price quote has an ID of its own (`price-…`) and is never booked.
+265. **No delivery orders while DoorDash can't be asked**: nobody would come for them. The quote
+    says to try again in a minute or choose pickup.
+266. **A driver is booked when the kitchen accepts the order**, not when it's paid: DoorDash says
+    to take payment first, and a paid order can still be rejected. The booking is a fresh quote,
+    accepted straight away, in a queued job (4 tries) so DoorDash never holds up the kitchen. An
+    ASAP order asks for pickup at the kitchen's estimated ready time. A time chosen more than an
+    hour ahead goes as the drop-off time, as DoorDash advises; one within the hour, as a pickup
+    at that time less the zone's delivery time. Under 5 minutes away, as soon as possible.
+267. **A booking is never made twice.** Its ID (`courier_delivery_id`: the order's `public_id`,
+    then `-2`, `-3` for later bookings) is saved before DoorDash is asked, and a booking whose
+    answer was lost is looked up first (a quote still in time is accepted) before another is
+    made, under a lock that the kitchen's own booking shares.
+268. **What the booking tells DoorDash:**
+    - the restaurant's address, name and phone, in E.164 as DoorDash requires (so DoorDash can
+      only be switched on with a phone DoorDash accepts);
+    - the customer's names and phone (customers ordering DoorDash delivery need a phone that can
+      be written with its country code);
+    - the address on one line, with any apartment in the driver's instructions, where it can't
+      confuse the map;
+    - the order number for the counter, and the items;
+    - the food's value, which DoorDash refunds against if the delivery fails;
+    - that DoorDash should text the customer the driver's progress.
+269. **DoorDash's news moves the order**: picked up to out for delivery, delivered to completed,
+    through any steps the kitchen didn't tap, each recorded as the state machine requires
+    (`OrderService::followCourier`). Other news (on the way, at the restaurant) is shown, not a
+    status. News never moves a delivery back a stage, so a late or replayed webhook changes
+    nothing; before pickup it can go back to "finding a driver" when a driver drops out.
+270. **The webhook is one per restaurant, authorised with a value the back office makes.**
+    DoorDash doesn't sign webhooks; its portal's Basic Auth option sends a value the owner pastes
+    in, in the `Authorization` header. The back office makes one (`ddwh_…`) once the access key
+    is in and shows it to the owner; the webhook takes it with or without a scheme in front.
+    DoorDash allows one endpoint per environment per account, which per-restaurant accounts fit.
+271. **Every minute, DoorDash is asked about the deliveries it's still making**
+    (`orders:sync-couriers`): the safety net for lost webhooks, and the only news where DoorDash
+    can't reach the API (a computer in development). A booking with no answer that DoorDash
+    doesn't have after 5 minutes is marked failed, so the kitchen can book again.
+272. **When there's no driver, the kitchen sees why and can book one**: DoorDash refused or never
+    answered the booking, called it off, or the driver brought the order back. The kitchen card
+    shows DoorDash's status, its support reference and the problem, with "Book a DoorDash
+    driver" (also when the booking made on accepting it hasn't got anywhere in two minutes, as
+    when the queue isn't running). The back office's order page shows the same. The customer
+    isn't shown the problem: the restaurant sorts it out, with another driver or its own.
+273. **Cancelling the order calls its driver off** (a queued job). DoorDash allows that until a
+    driver is assigned; after that the order says to call DoorDash support with the reference,
+    and it's logged.
+274. **The customer's order page follows the driver** ("Priya S., your DoorDash driver, is on the
+    way to you") with DoorDash's live map, and DoorDash texts them too. Broadcasts still carry
+    status and times only (122): screens fetch the order when one arrives.
+275. **No DoorDash SDK** (DoorDash's is for Node.js): a handful of Drive API v2 endpoints through
+    Laravel's HTTP client, faked in tests. The JWT is made by hand (HS256, with DoorDash's
+    `dd-ver` header), checked against a test vector worked out independently. Looking a delivery
+    up is retried when DoorDash can't be reached; bookings are retried by the queue instead.
+276. **DoorDash's charge includes any tax it lists separately.** With DoorDash's price, that's
+    the delivery fee customers pay, GST included like every price.
+277. **Not built yet:**
+    - tips (DoorDash asks for any tip customers give to be passed on in full; the apps take none);
+    - contactless drop-off and its photo;
+    - alcohol, which DoorDash restricts (ID checks, `return_to_pickup`);
+    - DoorDash's address components, which DoorDash has to switch on.

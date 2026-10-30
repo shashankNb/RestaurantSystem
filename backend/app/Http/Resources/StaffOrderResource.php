@@ -54,6 +54,20 @@ class StaffOrderResource extends JsonResource
                 'postcode' => $this->delivery_postcode,
                 'instructions' => $this->delivery_instructions,
             ],
+            // Delivered by DoorDash: its driver, DoorDash support's reference for the delivery,
+            // and why there's no driver when something went wrong.
+            'courier' => $this->courier === null ? null : [
+                'name' => $this->courier->getLabel(),
+                'status' => $this->courier_status?->value,
+                'driver_name' => $this->courier_driver_name,
+                'tracking_url' => $this->courier_tracking_url,
+                'support_reference' => $this->courier_support_reference,
+                'problem' => $this->courier_problem,
+                // The kitchen can book a driver: the last booking is over without delivering it,
+                // or the one made on accepting it hasn't got anywhere in two minutes.
+                'can_book' => $this->resource->courierCanBeBooked()
+                    && ($this->courier_status !== null || ($this->accepted_at?->lt(now()->subMinutes(2)) ?? false)),
+            ],
             'notes' => $this->notes,
             'items' => OrderResource::items($this->resource),
             'total_cents' => $this->total_cents,

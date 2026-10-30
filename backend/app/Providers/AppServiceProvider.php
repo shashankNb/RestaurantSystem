@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Delivery\DoorDash\DoorDashGateway;
+use App\Delivery\DoorDash\HttpDoorDashGateway;
 use App\Payments\PaymentGateway;
 use App\Payments\Square\HttpSquareGateway;
 use App\Payments\Square\SquareGateway;
@@ -26,6 +28,8 @@ class AppServiceProvider extends ServiceProvider
         // tokens of the Square account it connected (see HttpSquareGateway).
         $this->app->singleton(PaymentGateway::class, StripePaymentGateway::class);
         $this->app->singleton(SquareGateway::class, HttpSquareGateway::class);
+        // Each delivery brings its restaurant's own DoorDash access key (see HttpDoorDashGateway).
+        $this->app->singleton(DoorDashGateway::class, HttpDoorDashGateway::class);
     }
 
     /**

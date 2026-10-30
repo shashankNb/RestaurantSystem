@@ -204,6 +204,37 @@ class OrderInfolist
                             ->dateTime('D j M, g:i a')
                             ->placeholder('—'),
                     ]),
+
+                Section::make('DoorDash')
+                    ->columnSpan(1)
+                    ->visible(fn (Order $record): bool => $record->courier !== null)
+                    ->schema([
+                        TextEntry::make('courier_status')
+                            ->label('Driver')
+                            ->badge()
+                            ->placeholder('Booked when the order is accepted'),
+                        TextEntry::make('courier_driver_name')
+                            ->label('Driver’s name')
+                            ->placeholder('—'),
+                        TextEntry::make('courier_problem')
+                            ->label('Problem')
+                            ->color('danger')
+                            ->visible(fn (Order $record): bool => filled($record->courier_problem)),
+                        TextEntry::make('courier_support_reference')
+                            ->label('Support reference')
+                            ->helperText('Quote it to DoorDash’s support.')
+                            ->copyable()
+                            ->placeholder('—'),
+                        TextEntry::make('courier_fee_cents')
+                            ->label('DoorDash’s charge')
+                            ->money('AUD', divideBy: 100)
+                            ->placeholder('—'),
+                        TextEntry::make('courier_tracking_url')
+                            ->label('Live map')
+                            ->state('Open DoorDash’s map')
+                            ->url(fn (Order $record): ?string => $record->courier_tracking_url, shouldOpenInNewTab: true)
+                            ->visible(fn (Order $record): bool => filled($record->courier_tracking_url)),
+                    ]),
             ]);
     }
 }

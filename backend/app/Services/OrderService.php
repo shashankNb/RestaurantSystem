@@ -7,6 +7,8 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentProcessor;
 use App\Enums\PaymentStatus;
 use App\Events\OrderUpdated;
+use App\Jobs\BookCourier;
+use App\Jobs\CancelCourier;
 use App\Jobs\RefundOrder;
 use App\Jobs\SendOrderPushNotification;
 use App\Mail\OrderCancelled;
@@ -34,7 +36,9 @@ use Illuminate\Support\Facades\Mail;
  * Delivery orders go out for delivery before they're completed; pickup orders never do.
  * Every change is recorded in order_status_events, and after it commits the customer is
  * told: a broadcast, a push notification and, where it matters, an email. Rejecting an
- * order, or cancelling one that's paid, refunds it in full.
+ * order, or cancelling one that's paid, refunds it in full. When a courier delivers the
+ * order, accepting it books a driver, cancelling it calls the driver off, and the driver
+ * moves it along (see CourierService).
  */
 final class OrderService
 {
@@ -142,11 +146,18 @@ final class OrderService
                 ? $order->scheduled_for
                 : $now->addMinutes($prepMinutes);
 
-            return $this->transition($order, OrderStatus::Accepted, $by, "Ready in {$prepMinutes} minutes.", [
+            $order = $this->transition($order, OrderStatus::Accepted, $by, "Ready in {$prepMinutes} minutes.", [
                 'prep_minutes' => $prepMinutes,
                 'accepted_at' => $now,
                 'estimated_ready_at' => $readyAt,
             ]);
+
+            // A courier's driver is booked now the kitchen has said when it'll be ready.
+            if ($order->courier !== null) {
+                BookCourier::dispatch($order->id)->afterCommit();
+            }
+
+            return $order;
         });
     }
 
@@ -197,6 +208,40 @@ final class OrderService
                 'cancelled_at' => CarbonImmutable::now(),
             ]);
             $this->queueRefund($order);
+
+            // Its driver, if one is booked or being booked, is called off too.
+            if ($order->courier_delivery_id !== null && ! ($order->courier_status?->isFinal() ?? false)) {
+                CancelCourier::dispatch($order->id)->afterCommit();
+            }
+
+            return $order;
+        });
+    }
+
+    /**
+     * The courier's driver picked the order up (out for delivery) or delivered it (completed):
+     * a delivery order moves there through any steps the kitchen didn't tap, each recorded.
+     * One that's already there or past it, or called off, stays as it is.
+     */
+    public function followCourier(Order $order, OrderStatus $to, string $note): Order
+    {
+        return DB::transaction(function () use ($order, $to, $note): Order {
+            $order = $this->lock($order);
+            $now = CarbonImmutable::now();
+
+            foreach ([OrderStatus::Preparing, OrderStatus::Ready, OrderStatus::OutForDelivery, OrderStatus::Completed] as $next) {
+                if ($this->canTransition($order, $next)) {
+                    $order = $this->transition($order, $next, null, $next === $to ? $note : null, match ($next) {
+                        OrderStatus::Ready => ['ready_at' => $now],
+                        OrderStatus::Completed => ['completed_at' => $now],
+                        default => [],
+                    });
+                }
+
+                if ($next === $to) {
+                    break;
+                }
+            }
 
             return $order;
         });

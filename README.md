@@ -5,7 +5,8 @@ instead of only through delivery marketplaces. The demo restaurant is **Himalaya
 House**, a fictional Nepalese takeaway in Melbourne.
 
 - **Customers** order on iOS, Android or the web: the menu with photos, options and sold-out
-  dishes, pickup, delivery or dine in (from a QR code on the table), now or for later, and
+  dishes, pickup, delivery (by the restaurant's own drivers or DoorDash's) or dine in (from a
+  QR code on the table), now or for later, and
   payment by card, Apple Pay or Google Pay, into the restaurant's own Stripe or Square
   account. They follow the order live, with push notifications, and can keep an account with
   saved addresses and past orders.
@@ -13,8 +14,8 @@ House**, a fictional Nepalese takeaway in Melbourne.
   a prep time or reject them with a reason, move them along, pause online orders and mark
   dishes sold out.
 - **The owner** runs the restaurant from a back office: menu, prices and photos, opening
-  hours, delivery zones, tables and their QR codes, promo codes, staff and orders, with
-  refunds.
+  hours, delivery zones and delivery by DoorDash, tables and their QR codes, promo codes, staff
+  and orders, with refunds.
 - **The website** is rendered on the server, with search-friendly pages, structured data for
   search engines, link previews, and can be installed to a phone's home screen.
 
@@ -24,7 +25,7 @@ House**, a fictional Nepalese takeaway in Melbourne.
 | `app/` | Expo app (SDK 57): customer ordering on iOS, Android and the web, plus the kitchen screens |
 | `docs/` | [Spec](docs/SPEC.md), [setup](docs/SETUP.md), [adding a restaurant](docs/ADDING_A_RESTAURANT.md), [API](docs/API.md), [design](docs/DESIGN.md) and [decisions](docs/DECISIONS.md) |
 
-Built with Laravel, MySQL, Sanctum, Reverb, Stripe, Square and Filament on the backend, and
+Built with Laravel, MySQL, Sanctum, Reverb, Stripe, Square, DoorDash Drive and Filament on the backend, and
 Expo Router, NativeWind with Moe UI, TanStack Query, Zustand and React Hook Form with Zod in
 the app.
 
@@ -54,3 +55,12 @@ events only arrive on a deployed API. What each event does is in the
 [API reference](docs/API.md#post-stripewebhookslug), and the owner's steps are in
 [adding a restaurant](docs/ADDING_A_RESTAURANT.md#3-payments-the-restaurants-own-stripe-or-square-account),
 step 3.
+
+## DoorDash webhook
+
+A restaurant that has DoorDash deliver for it adds a webhook in its own DoorDash account
+(Developer Portal → Webhooks, one per environment). It uses the URL
+`https://<API host>/api/v1/doordash/webhook/<link-name>`, with **Basic Auth** and the
+authorization value its back office shows (Restaurant settings → DoorDash). The webhook brings
+the driver's progress straight away; without it, the API asks DoorDash every minute. Trying it
+with DoorDash's sandbox is in [docs/SETUP.md](docs/SETUP.md#doordash-sandbox).

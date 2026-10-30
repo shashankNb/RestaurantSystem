@@ -7,6 +7,10 @@ use App\Data\CartItem;
 use App\Data\Quote;
 use App\Data\QuoteError;
 use App\Data\QuoteLine;
+use App\Delivery\CourierUnavailable;
+use App\Delivery\DoorDash\DoorDashRefused;
+use App\Enums\Courier;
+use App\Enums\DoorDashFee;
 use App\Enums\FulfilmentType;
 use App\Enums\PromoCodeType;
 use App\Models\DeliveryZone;
@@ -31,6 +35,8 @@ use Illuminate\Support\Collection;
  *   (sold out, a missing required choice) are reported but left out of the totals.
  * - Delivery adds the zone's fee; the zone's minimum applies to the food subtotal. Pickup
  *   and dine in (at one of the restaurant's tables, for now) have no fee or minimum.
+ * - When DoorDash delivers for the restaurant, DoorDash checks the address once checkout has
+ *   it, and the fee is the zone's or DoorDash's price for the address, as the owner chooses.
  * - A promo code takes a percentage or a fixed amount off the food subtotal.
  * - total = subtotal − discount + delivery fee; GST is total ÷ 11, to the nearest cent.
  */
@@ -39,6 +45,7 @@ final class PricingService
     public function __construct(
         private readonly DeliveryService $delivery,
         private readonly OpeningHoursService $hours,
+        private readonly CourierService $couriers,
     ) {}
 
     public function quote(Restaurant $restaurant, Cart $cart, CarbonImmutable $now): Quote
@@ -68,7 +75,15 @@ final class PricingService
             $discount = $this->discount($promo, $subtotal);
         }
 
-        $deliveryFee = $zone->fee_cents ?? 0;
+        $courier = $zone !== null && $restaurant->deliversWithDoorDash() ? Courier::DoorDash : null;
+        [$deliveryFee, $feePending, $courierError] = $zone === null || $courier === null
+            ? [$zone->fee_cents ?? 0, false, null]
+            : $this->doorDashFee($restaurant, $cart, $zone, max(0, $subtotal - $discount));
+
+        if ($courierError !== null) {
+            $errors[] = $courierError;
+        }
+
         $total = max(0, $subtotal - $discount + $deliveryFee);
 
         return new Quote(
@@ -84,7 +99,45 @@ final class PricingService
             estimatedMinutes: $estimatedMinutes,
             errors: $errors,
             table: $table,
+            courier: $courier,
+            deliveryFeePending: $feePending,
         );
+    }
+
+    /**
+     * Delivery by DoorDash: the fee, whether it's still waiting for the address, and any
+     * problem. The cart knows only the postcode, so DoorDash prices (or, when customers pay the
+     * zone's fee, checks) the address once checkout sends it. If DoorDash can't be asked,
+     * delivery can't be ordered: nobody would come for it.
+     *
+     * @return array{0: int, 1: bool, 2: ?QuoteError}
+     */
+    private function doorDashFee(Restaurant $restaurant, Cart $cart, DeliveryZone $zone, int $orderValue): array
+    {
+        $quoted = $restaurant->doordash_fee === DoorDashFee::Quote;
+        $unpriced = $quoted ? 0 : $zone->fee_cents;
+
+        if ($cart->address === null || ! $cart->address->isComplete()) {
+            return [$unpriced, $quoted, null];
+        }
+
+        try {
+            $fee = $this->couriers->price($restaurant, $cart->address, $orderValue);
+        } catch (DoorDashRefused) {
+            return [$unpriced, false, new QuoteError(
+                'not_deliverable',
+                'DoorDash can’t deliver to this address. Check the street address and suburb, or choose pickup.',
+                'delivery.line1',
+            )];
+        } catch (CourierUnavailable) {
+            return [$unpriced, $quoted, new QuoteError(
+                'delivery_unavailable',
+                'We can’t check delivery to your address right now. Try again in a minute, or choose pickup.',
+                'delivery.line1',
+            )];
+        }
+
+        return [$quoted ? $fee : $zone->fee_cents, false, null];
     }
 
     /**

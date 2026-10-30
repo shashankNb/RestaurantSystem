@@ -81,7 +81,7 @@ owned by root, so you can't edit it.
 |---|---|---|
 | `laravel.test` | API and back office | http://localhost (API under `/api/v1`, back office at `/admin`) |
 | `queue` | Queue worker (`queue:listen`) for emails, push notifications, refunds and retries of failed Stripe events | — |
-| `scheduler` | Laravel scheduler (`schedule:work`): cancels unpaid checkouts after 30 minutes and auto-rejects orders not accepted in time, every minute | — |
+| `scheduler` | Laravel scheduler (`schedule:work`): every minute, cancels unpaid checkouts after 30 minutes, auto-rejects orders not accepted in time, and asks DoorDash about deliveries it's making | — |
 | `reverb` | Laravel Reverb, the WebSocket server for live order updates | `ws://localhost:8080` |
 | `mysql` | MySQL 8.4. Database `ordering` (tests use `testing`), user `sail`, password `password` | `127.0.0.1:3307` from your machine |
 | `mailpit` | Catches all outgoing email | http://localhost:8025 |
@@ -222,6 +222,37 @@ Production credentials (`sq0idp-…` and the production access token) take real 
 application ID says which environment the restaurant is in. Square's personal access tokens
 don't expire; if one is replaced in Square's console, enter the new one. Tests never call
 Square: they use a fake, and `HttpSquareGateway` is tested against faked responses.
+
+### DoorDash (sandbox)
+
+A restaurant can have DoorDash's drivers deliver its delivery orders (DoorDash Drive), booked
+with its own DoorDash account. Like Stripe's keys, its owner enters an access key in the back
+office (Restaurant settings → **DoorDash**); nothing about DoorDash goes in `.env`. To try it
+with the demo restaurant:
+
+1. Sign in to DoorDash's [Developer Portal](https://developer.doordash.com) and create an access
+   key under **Credentials**. Copy its developer ID, key ID and signing secret (the secret is
+   shown only once). The key is a sandbox key until DoorDash approves the account for
+   production. DoorDash's sandbox is set up for the US: for Australian addresses, ask DoorDash
+   to set it up for Australia, through the portal's **Support** page.
+2. In the back office, Restaurant settings → DoorDash: paste the three values, switch on
+   **Deliver with DoorDash**, choose what customers pay, and save. The back office checks the key
+   with DoorDash. The restaurant needs a phone number under Details, for DoorDash's drivers.
+3. Order delivery to an address in one of the delivery zones. At checkout, DoorDash checks the
+   address, and prices it if customers pay DoorDash's price.
+4. Accept the order on the kitchen screen: a driver is booked (the `queue` container does it),
+   and the card says "DoorDash · Finding a driver". Move the delivery along with the portal's
+   **Delivery Simulator**: the kitchen card and the customer's order page follow it, and the
+   pickup and the delivery move the order to out for delivery and completed.
+5. Webhooks: DoorDash can't reach `localhost`, so locally the scheduler asks DoorDash about its
+   deliveries every minute instead (`sail artisan orders:sync-couriers` asks straight away). On
+   a deployed API, add an endpoint under the portal's **Webhooks**, for the sandbox, with the
+   **Webhook URL** shown under DoorDash (`<APP_URL>/api/v1/doordash/webhook/<link-name>`),
+   **Basic Auth**, and the **Webhook authorization** value shown under it.
+
+A production key books real drivers, once DoorDash approves the account: **Request production
+access** in the portal leads to a demo of a whole delivery. Tests never call DoorDash: they use
+a fake, and `HttpDoorDashGateway` is tested against faked responses.
 
 ### Troubleshooting
 
@@ -507,6 +538,9 @@ on a VPS, or Laravel Cloud) works:
   Payments shows the address and the two events). Keys are stored encrypted with `APP_KEY`:
   keep it safe, and when changing it list the old one in `APP_PREVIOUS_KEYS`, or every owner
   has to enter their keys again.
+- **DoorDash:** nothing on the server either. Each restaurant's owner enters its own DoorDash
+  access key and adds its webhook (Restaurant settings → DoorDash); the scheduler's every-minute
+  check catches anything a webhook misses.
 - **Names:** with several restaurants, set `APP_NAME` and `MAIL_FROM_NAME` to the platform's own
   name: it's on the back office's sign-in page and on owners' invitations. Customers' emails
   carry each restaurant's name.

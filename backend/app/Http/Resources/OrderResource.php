@@ -52,6 +52,14 @@ class OrderResource extends JsonResource
                 'suburb' => $this->delivery_suburb,
                 'postcode' => $this->delivery_postcode,
             ] : null,
+            // Delivered by DoorDash: where its driver is up to, and DoorDash's live map. Of the
+            // driver, only the first name DoorDash shares.
+            'courier' => $this->courier === null ? null : [
+                'name' => $this->courier->getLabel(),
+                'status' => $this->courier_status?->value,
+                'driver_name' => $this->courier_driver_name,
+                'tracking_url' => $this->courier_tracking_url,
+            ],
             'items' => self::items($this->resource),
             'subtotal_cents' => $this->subtotal_cents,
             'delivery_fee_cents' => $this->delivery_fee_cents,

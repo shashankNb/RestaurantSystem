@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers\Api\Staff;
 
+use App\Enums\CourierStatus;
 use App\Enums\OrderStatus;
 use App\Http\Resources\StaffOrderResource;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\CourierService;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * The kitchen's order queue and the actions on it. Orders are addressed by public ID.
@@ -89,6 +92,34 @@ class OrderController extends StaffController
         $note = isset($data['note']) ? trim((string) $data['note']) : null;
 
         return $this->respond($orders->advance($order, OrderStatus::from((string) $data['status']), $this->staff($request), $note ?: null));
+    }
+
+    /**
+     * Books a DoorDash driver for a delivery order that has none: DoorDash refused the booking,
+     * never answered, called it off, or the driver brought it back. Straight away, so the
+     * kitchen sees DoorDash's answer.
+     */
+    public function courier(Request $request, Order $order, CourierService $couriers): StaffOrderResource
+    {
+        Gate::authorize('manage', $order);
+
+        if ($order->courier === null) {
+            throw ValidationException::withMessages(['courier' => 'DoorDash doesn’t deliver this order. Deliver it yourselves.']);
+        }
+
+        if (! $order->courierCanBeBooked()) {
+            throw ValidationException::withMessages(['courier' => $order->courier_status !== null && ! $order->courier_status->isFinal()
+                ? 'A DoorDash driver is already booked for this order.'
+                : 'This order isn’t waiting for a driver.']);
+        }
+
+        $order = $couriers->book($order);
+
+        if ($order->courier_status === CourierStatus::Failed) {
+            throw ValidationException::withMessages(['courier' => (string) $order->courier_problem]);
+        }
+
+        return $this->respond($order);
     }
 
     private function respond(Order $order): StaffOrderResource

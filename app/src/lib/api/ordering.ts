@@ -7,9 +7,19 @@ import { config } from '@/lib/config';
 
 const base = `/restaurants/${encodeURIComponent(config.restaurantSlug)}`;
 
+/** A street address for delivery, as checkout has it. */
+export interface DeliveryAddress {
+  line1: string;
+  line2: string | null;
+  suburb: string;
+  state: string | null;
+}
+
 export interface CartRequest {
   fulfilment_type: FulfilmentType;
   postcode: string | null;
+  /** When DoorDash delivers: the address, once checkout has it, for DoorDash to price or check. */
+  delivery?: DeliveryAddress | null;
   table: string | null;
   scheduled_for: string | null;
   promo_code: string | null;
@@ -24,10 +34,12 @@ export function cartRequest(cart: {
   table: string | null;
   scheduledFor: string | null;
   promoCode: string | null;
+  address?: DeliveryAddress | null;
 }): CartRequest {
   return {
     fulfilment_type: cart.fulfilment,
     postcode: cart.fulfilment === 'delivery' ? cart.postcode : null,
+    ...(cart.fulfilment === 'delivery' && cart.address ? { delivery: cart.address } : {}),
     table: cart.fulfilment === 'dine_in' ? cart.table : null,
     // At a table it's always as soon as possible.
     scheduled_for: cart.fulfilment === 'dine_in' ? null : cart.scheduledFor,

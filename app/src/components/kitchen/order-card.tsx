@@ -7,9 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Text } from '@/components/ui/text';
 import { ago, at, minutesUntil } from '@/kitchen/time';
 import { errorMessage } from '@/lib/api/client';
-import type { StaffOrder } from '@/lib/api/schemas';
+import type { CourierStatus, StaffOrder } from '@/lib/api/schemas';
 import { fulfilmentLabel } from '@/lib/fulfilment';
-import { useAcceptOrder, useAdvanceOrder, useRejectOrder } from '@/lib/api/staff';
+import { useAcceptOrder, useAdvanceOrder, useBookCourier, useRejectOrder } from '@/lib/api/staff';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +19,20 @@ const PREP_TIMES = [10, 15, 20, 30];
 const REJECT_REASONS = ['We’ve run out of an ingredient', 'We’re too busy right now', 'We’re closing soon'];
 
 type NextStatus = 'preparing' | 'ready' | 'out_for_delivery' | 'completed' | 'cancelled';
+
+/** Where DoorDash's driver is up to, for the kitchen. */
+const COURIER_STATUS: Record<CourierStatus, string> = {
+  booked: 'Finding a driver',
+  driver_assigned: 'Driver on the way',
+  at_pickup: 'Driver is here',
+  picked_up: 'On its way to the customer',
+  at_dropoff: 'Driver at the customer’s address',
+  delivered: 'Delivered',
+  cancelled: 'Delivery cancelled',
+  returning: 'Driver bringing it back',
+  returned: 'Brought back',
+  failed: 'No driver booked',
+};
 
 interface CardProps {
   order: StaffOrder;
@@ -36,9 +50,10 @@ export function OrderCard({ order, now, timeZone, currency }: CardProps) {
   const accept = useAcceptOrder();
   const reject = useRejectOrder();
   const advance = useAdvanceOrder();
+  const book = useBookCourier();
   const [mode, setMode] = useState<'actions' | 'rejecting' | 'cancelling'>('actions');
-  const busy = accept.isPending || reject.isPending || advance.isPending;
-  const failure = accept.error ?? reject.error ?? advance.error;
+  const busy = accept.isPending || reject.isPending || advance.isPending || book.isPending;
+  const failure = accept.error ?? reject.error ?? advance.error ?? book.error;
   const isNew = order.status === 'placed';
   const number = order.order_number ?? '—';
 
@@ -101,6 +116,16 @@ export function OrderCard({ order, now, timeZone, currency }: CardProps) {
         </View>
       ) : null}
 
+      {order.courier ? (
+        <Courier
+          courier={order.courier}
+          accepted={order.status !== 'placed'}
+          busy={busy}
+          booking={book.isPending}
+          onBook={() => book.mutate({ order })}
+        />
+      ) : null}
+
       <Timing order={order} now={now} timeZone={timeZone} currency={currency} />
 
       {failure ? (
@@ -123,6 +148,51 @@ export function OrderCard({ order, now, timeZone, currency }: CardProps) {
           onCancel={() => setMode('cancelling')}
         />
       )}
+    </View>
+  );
+}
+
+/**
+ * DoorDash's driver for a delivery order: where they are, DoorDash's reference for its
+ * support team, and, when there's no driver, why and a way to book one.
+ */
+function Courier({
+  courier,
+  accepted,
+  busy,
+  booking,
+  onBook,
+}: {
+  courier: NonNullable<StaffOrder['courier']>;
+  accepted: boolean;
+  busy: boolean;
+  booking: boolean;
+  onBook: () => void;
+}) {
+  const status =
+    courier.status === null
+      ? accepted
+        ? 'Booking a driver…'
+        : 'A driver is booked when you accept it'
+      : [COURIER_STATUS[courier.status], courier.driver_name].filter(Boolean).join(' · ');
+
+  return (
+    <View className="border-border gap-1 border-t pt-3">
+      <Text>
+        <Text className="font-body-semibold">DoorDash · </Text>
+        {status}
+      </Text>
+      {courier.problem ? (
+        <Text role="alert" className="text-destructive">
+          {courier.problem}
+        </Text>
+      ) : null}
+      {courier.support_reference ? <Text variant="muted">DoorDash reference {courier.support_reference}</Text> : null}
+      {courier.can_book ? (
+        <Button variant="outline" className="mt-1 self-start" onPress={onBook} disabled={busy}>
+          <Text>{booking ? 'Booking…' : 'Book a DoorDash driver'}</Text>
+        </Button>
+      ) : null}
     </View>
   );
 }

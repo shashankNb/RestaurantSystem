@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\Courier;
+use App\Enums\CourierStatus;
 use App\Enums\FulfilmentType;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentProcessor;
@@ -36,6 +38,9 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $rejected_at
  * @property Carbon|null $cancelled_at
  * @property Carbon|null $refunded_at
+ * @property Courier|null $courier
+ * @property CourierStatus|null $courier_status
+ * @property Carbon|null $courier_updated_at
  */
 #[Fillable([
     'user_id',
@@ -52,6 +57,7 @@ use Illuminate\Support\Carbon;
     'delivery_state',
     'delivery_postcode',
     'delivery_instructions',
+    'courier',
     'dining_table_id',
     'table_label',
     'subtotal_cents',
@@ -110,6 +116,11 @@ class Order extends Model
             'rejected_at' => 'datetime',
             'cancelled_at' => 'datetime',
             'refunded_at' => 'datetime',
+            'courier' => Courier::class,
+            'courier_attempts' => 'integer',
+            'courier_status' => CourierStatus::class,
+            'courier_fee_cents' => 'integer',
+            'courier_updated_at' => 'datetime',
         ];
     }
 
@@ -182,5 +193,18 @@ class Order extends Model
     public function isAsap(): bool
     {
         return $this->scheduled_for === null;
+    }
+
+    /**
+     * A courier's driver can be booked for it now: a courier delivers it, the kitchen has
+     * accepted it and it isn't finished, and there's no booking under way (none yet, or the
+     * last one ended without delivering it: called off, or brought back). A booking whose
+     * answer never came back counts as none: booking again looks it up first.
+     */
+    public function courierCanBeBooked(): bool
+    {
+        return $this->courier !== null
+            && in_array($this->status, [OrderStatus::Accepted, OrderStatus::Preparing, OrderStatus::Ready, OrderStatus::OutForDelivery], true)
+            && ($this->courier_status === null || ($this->courier_status->isFinal() && $this->courier_status !== CourierStatus::Delivered));
     }
 }

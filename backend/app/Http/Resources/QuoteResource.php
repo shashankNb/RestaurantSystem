@@ -59,6 +59,11 @@ class QuoteResource extends JsonResource
                 'estimated_minutes' => $quote->estimatedMinutes,
                 'delivery_zone' => $quote->deliveryZone === null ? null : new DeliveryZoneResource($quote->deliveryZone),
                 'table' => $quote->table?->label,
+                // Delivery: "doordash" when DoorDash's drivers deliver it, null for the restaurant's own.
+                'courier' => $quote->courier?->value,
+                // The fee is DoorDash's price for the address, which comes with the address at
+                // checkout: until then it isn't in delivery_fee_cents or the total.
+                'delivery_fee_pending' => $quote->deliveryFeePending,
             ],
             'scheduled_for' => $quote->cart->scheduledFor?->toIso8601ZuluString(),
             'errors' => array_map(fn (QuoteError $error): array => [

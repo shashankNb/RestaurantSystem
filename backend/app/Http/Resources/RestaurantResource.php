@@ -3,6 +3,8 @@
 namespace App\Http\Resources;
 
 use App\Data\OpeningStatus;
+use App\Enums\Courier;
+use App\Enums\DoorDashFee;
 use App\Enums\PaymentProcessor;
 use App\Models\OpeningHour;
 use App\Models\Restaurant;
@@ -58,6 +60,11 @@ class RestaurantResource extends JsonResource
                 'delivery' => [
                     'enabled' => $this->delivery_enabled && $this->deliveryZones->isNotEmpty(),
                     'zones' => DeliveryZoneResource::collection($this->deliveryZones),
+                    // "doordash" when DoorDash's drivers deliver, null for the restaurant's own.
+                    'courier' => $this->deliversWithDoorDash() ? Courier::DoorDash->value : null,
+                    // The fee is DoorDash's price for the customer's address, shown at checkout,
+                    // rather than the zone's.
+                    'fee_from_address' => $this->deliversWithDoorDash() && $this->doordash_fee === DoorDashFee::Quote,
                 ],
                 'dine_in' => [
                     'enabled' => $this->offersDineIn(),

@@ -3,6 +3,10 @@
 namespace App\Http\Requests;
 
 use App\Data\Customer;
+use App\Enums\FulfilmentType;
+use App\Models\Restaurant;
+use App\Support\PhoneNumber;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
@@ -21,7 +25,7 @@ class StoreOrderRequest extends QuoteRequest
             'idempotency_key' => ['required', 'string', 'min:8', 'max:100'],
             'customer' => ['required', 'array'],
             'customer.name' => ['required', 'string', 'max:255'],
-            'customer.phone' => ['required', 'string', 'max:32', 'regex:/^\+?[0-9 ()-]{8,}$/'],
+            'customer.phone' => ['required', 'string', 'max:32', 'regex:/^\+?[0-9 ()-]{8,}$/', $this->callableByDriver()],
             'customer.email' => ['required', 'string', 'email', 'max:255'],
             'delivery' => ['nullable', 'array', 'required_if:fulfilment_type,delivery'],
             'delivery.line1' => ['nullable', 'required_if:fulfilment_type,delivery', 'string', 'max:255'],
@@ -63,6 +67,24 @@ class StoreOrderRequest extends QuoteRequest
         if (is_array($customer) && isset($customer['email']) && is_string($customer['email'])) {
             $this->merge(['customer' => [...$customer, 'email' => mb_strtolower(trim($customer['email']))]]);
         }
+    }
+
+    /**
+     * DoorDash's driver calls the customer, so DoorDash needs their number with its country
+     * code: it has to be one that can be written that way.
+     */
+    private function callableByDriver(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            $restaurant = $this->route('restaurant');
+
+            if ($this->input('fulfilment_type') === FulfilmentType::Delivery->value
+                && $restaurant instanceof Restaurant
+                && $restaurant->deliversWithDoorDash()
+                && PhoneNumber::e164(is_string($value) ? $value : null) === null) {
+                $fail('Enter a phone number the delivery driver can call, like 0412 345 678.');
+            }
+        };
     }
 
     public function idempotencyKey(): string

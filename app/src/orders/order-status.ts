@@ -17,6 +17,33 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   cancelled: 'Cancelled',
 };
 
+/**
+ * Where DoorDash's driver is up to, in the customer's words, for an order DoorDash delivers.
+ * Null when there's nothing for the customer to know: when a booking goes wrong, the
+ * restaurant sorts it out (another driver, or its own).
+ */
+export function describeCourier(courier: NonNullable<Order['courier']>): string | null {
+  const driver = courier.driver_name ? `${courier.driver_name}, your DoorDash driver,` : 'Your DoorDash driver';
+
+  switch (courier.status) {
+    case null:
+    case 'booked':
+      return 'A DoorDash driver will bring it to you.';
+    case 'driver_assigned':
+      return `${driver} is on the way to the restaurant.`;
+    case 'at_pickup':
+      return `${driver} is at the restaurant.`;
+    case 'picked_up':
+      return `${driver} is on the way to you.`;
+    case 'at_dropoff':
+      return `${driver} is at your address.`;
+    case 'delivered':
+      return 'Delivered by DoorDash.';
+    default:
+      return null;
+  }
+}
+
 /** Where an order is, in the customer's words: "Your order is being prepared". */
 export function describeOrder(
   order: Order,

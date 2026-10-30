@@ -28,7 +28,7 @@ import { privatePage, toMetadata } from '@/lib/page-meta';
 import { enableOrderNotifications, type PushResult } from '@/lib/push';
 import { useOrderEvents } from '@/lib/realtime';
 import { cn } from '@/lib/utils';
-import { describeOrder, orderSteps, type StatusTone } from '@/orders/order-status';
+import { describeCourier, describeOrder, orderSteps, type StatusTone } from '@/orders/order-status';
 import { useRecentOrders } from '@/orders/recent-orders';
 
 const TONE: Record<StatusTone, string> = {
@@ -278,6 +278,7 @@ function WhereBlock({ order }: { order: Order }) {
           {[order.delivery?.suburb, order.delivery?.postcode].filter(Boolean).join(' ')}
         </Text>
       )}
+      {order.courier && !['rejected', 'cancelled'].includes(order.status) ? <CourierLine courier={order.courier} /> : null}
       {placedAt ? (
         <Text variant="muted">
           Placed {describeDay(placedAt, timeZone)} at {formatTime(placedAt, timeZone)}
@@ -286,6 +287,28 @@ function WhereBlock({ order }: { order: Order }) {
       {order.restaurant.phone ? (
         <Button variant="outline" className="mt-1 self-start" onPress={() => void Linking.openURL(`tel:${order.restaurant.phone?.replace(/\s/g, '')}`)}>
           <Text>Call {order.restaurant.name}</Text>
+        </Button>
+      ) : null}
+    </View>
+  );
+}
+
+/** Delivered by DoorDash: where its driver is, and DoorDash's live map while it's on the way. */
+function CourierLine({ courier }: { courier: NonNullable<Order['courier']> }) {
+  const where = describeCourier(courier);
+  const trackingUrl = courier.tracking_url;
+  const onTheWay = courier.status !== null && ['booked', 'driver_assigned', 'at_pickup', 'picked_up', 'at_dropoff'].includes(courier.status);
+
+  if (where === null) {
+    return null;
+  }
+
+  return (
+    <View className="gap-1">
+      <Text>{where}</Text>
+      {trackingUrl !== null && onTheWay ? (
+        <Button variant="outline" className="mt-1 self-start" onPress={() => void Linking.openURL(trackingUrl)}>
+          <Text>Follow your driver</Text>
         </Button>
       ) : null}
     </View>

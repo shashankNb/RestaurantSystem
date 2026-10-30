@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AddressController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DeliveryCheckController;
+use App\Http\Controllers\Api\DoorDashWebhookController;
 use App\Http\Controllers\Api\MeController;
 use App\Http\Controllers\Api\MenuController;
 use App\Http\Controllers\Api\MyOrderController;
@@ -67,6 +68,10 @@ Route::post('stripe/webhook/{restaurant:slug}', StripeWebhookController::class)-
 // with that restaurant's signature key; each event processed once).
 Route::post('square/webhook/{restaurant:slug}', SquareWebhookController::class)->name('square.webhook');
 
+// DoorDash: each restaurant's own DoorDash account sends its deliveries' progress here (with the
+// Authorization value from that restaurant's settings).
+Route::post('doordash/webhook/{restaurant:slug}', DoorDashWebhookController::class)->name('doordash.webhook');
+
 // Accounts
 Route::prefix('auth')->name('auth.')->group(function (): void {
     Route::post('register', [AuthController::class, 'register'])
@@ -97,6 +102,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('orders/{order:public_id}/accept', [StaffOrderController::class, 'accept'])->name('orders.accept');
         Route::post('orders/{order:public_id}/reject', [StaffOrderController::class, 'reject'])->name('orders.reject');
         Route::post('orders/{order:public_id}/status', [StaffOrderController::class, 'status'])->name('orders.status');
+        Route::post('orders/{order:public_id}/courier', [StaffOrderController::class, 'courier'])->name('orders.courier');
         Route::patch('restaurant', [AvailabilityController::class, 'updateRestaurant'])->name('restaurant.update');
         Route::patch('menu-items/{menuItem}', [AvailabilityController::class, 'updateMenuItem'])->name('menu-items.update');
         Route::patch('modifier-options/{modifierOption}', [AvailabilityController::class, 'updateModifierOption'])->name('modifier-options.update');

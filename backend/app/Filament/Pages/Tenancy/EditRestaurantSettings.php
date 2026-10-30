@@ -2,6 +2,10 @@
 
 namespace App\Filament\Pages\Tenancy;
 
+use App\Delivery\CourierUnavailable;
+use App\Delivery\DoorDash\DoorDashGateway;
+use App\Delivery\DoorDash\DoorDashKeyRejected;
+use App\Enums\DoorDashFee;
 use App\Enums\PaymentProcessor;
 use App\Enums\SquareEnvironment;
 use App\Http\Controllers\Api\SquareWebhookController;
@@ -13,6 +17,7 @@ use App\Payments\Square\SquareLocation;
 use App\Payments\WalletSetup;
 use App\Rules\WebsiteDomain;
 use App\Services\SquareAccountService;
+use App\Support\PhoneNumber;
 use Closure;
 use DateTimeZone;
 use Filament\Actions\Action;
@@ -248,6 +253,58 @@ class EditRestaurantSettings extends EditTenantProfile
                         ->columnSpanFull(),
                 ]),
 
+            Section::make('DoorDash')
+                ->key('doordash')
+                ->description('Have DoorDash’s drivers deliver your delivery orders, booked with your own DoorDash account. In DoorDash’s Developer Portal (developer.doordash.com), create an access key under Credentials and paste its three values here, then add the webhook below. A sandbox key books test deliveries, which you move along with the portal’s Delivery Simulator; a production key books real drivers, once DoorDash has approved your account.')
+                ->columns(2)
+                ->collapsible()
+                ->afterHeader([
+                    Action::make('checkDoorDash')
+                        ->label('Check with DoorDash')
+                        ->icon(Heroicon::OutlinedShieldCheck)
+                        ->link()
+                        ->visible(fn (): bool => $this->restaurant()->doordashConfigured())
+                        ->action(fn () => $this->checkDoorDash()),
+                ])
+                ->schema([
+                    Toggle::make('doordash_enabled')
+                        ->label('Deliver with DoorDash')
+                        ->helperText('A driver is booked when you accept a delivery order, to collect it when it’s ready. Your delivery zones still set where you deliver and the minimum order.')
+                        ->rules([fn (Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get): void {
+                            $this->checkDoorDashCanBeOn($value, $get, $fail);
+                        }]),
+                    Select::make('doordash_fee')
+                        ->label('Customers pay for delivery')
+                        ->options(DoorDashFee::class)
+                        ->required()
+                        ->helperText('With DoorDash’s price, customers see the fee at checkout, once they’ve entered their address. With your zone’s fee, DoorDash’s charge for each delivery is yours.'),
+                    TextInput::make('doordash_developer_id')
+                        ->label('Developer ID')
+                        ->maxLength(255),
+                    TextInput::make('doordash_key_id')
+                        ->label('Key ID')
+                        ->maxLength(255),
+                    TextInput::make('doordash_signing_secret')
+                        ->label('Signing secret')
+                        ->password()
+                        ->revealable(false)
+                        ->placeholder(fn (): string => $this->savedPlaceholder('doordash_signing_secret', 'Shown once, when you create the key'))
+                        ->helperText('Never shown again once saved.')
+                        // Left empty, the saved secret stays.
+                        ->dehydrated(fn (?string $state): bool => filled($state))
+                        ->maxLength(255),
+                    TextEntry::make('doordash_webhook_url')
+                        ->label('Webhook URL')
+                        ->state(fn (): string => route('doordash.webhook', ['restaurant' => $this->restaurant()]))
+                        ->helperText('In DoorDash’s Developer Portal, under Webhooks, add an endpoint in the same environment as your key with this URL. Choose Basic Auth and paste the value below.')
+                        ->copyable(),
+                    TextEntry::make('doordash_webhook_authorization')
+                        ->label('Webhook authorization')
+                        ->state(fn (): string => $this->restaurant()->doordash_webhook_secret ?? 'Made once your access key is saved.')
+                        ->copyable(fn (): bool => filled($this->restaurant()->doordash_webhook_secret))
+                        ->helperText('Keep it private: with it, anyone could update your orders’ deliveries.'),
+                ]),
+
             Section::make('Details')
                 ->columns(2)
                 ->schema([
@@ -327,7 +384,14 @@ class EditRestaurantSettings extends EditTenantProfile
     protected function mutateFormDataBeforeFill(array $data): array
     {
         // Secrets never go to the browser; the fields start empty and only replace them.
-        unset($data['stripe_secret_key'], $data['stripe_webhook_secret'], $data['square_access_token'], $data['square_webhook_signature_key']);
+        unset(
+            $data['stripe_secret_key'],
+            $data['stripe_webhook_secret'],
+            $data['square_access_token'],
+            $data['square_webhook_signature_key'],
+            $data['doordash_signing_secret'],
+            $data['doordash_webhook_secret'],
+        );
 
         return $data;
     }
@@ -340,7 +404,13 @@ class EditRestaurantSettings extends EditTenantProfile
     {
         $data['address'] = [...(array) ($data['address'] ?? []), 'country' => 'AU'];
 
-        foreach (['stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'square_application_id', 'square_access_token', 'square_webhook_signature_key'] as $key) {
+        $credentials = [
+            'stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret',
+            'square_application_id', 'square_access_token', 'square_webhook_signature_key',
+            'doordash_developer_id', 'doordash_key_id', 'doordash_signing_secret',
+        ];
+
+        foreach ($credentials as $key) {
             if (array_key_exists($key, $data)) {
                 $data[$key] = filled($data[$key]) ? trim((string) $data[$key]) : null;
             }
@@ -356,8 +426,9 @@ class EditRestaurantSettings extends EditTenantProfile
      * Apple Pay and Google Pay (registering the domain) and keeps the answer for the checklist.
      * Once the Square credentials change, checks them with Square, loading the account's
      * locations (choosing the only one) and registering the domain; a new domain is registered
-     * with Square too. Stripe and Square are asked after the save is committed, so the
-     * restaurant isn't kept locked while they answer.
+     * with Square too. A new DoorDash access key is checked with DoorDash. Stripe, Square and
+     * DoorDash are asked after the save is committed, so the restaurant isn't kept locked
+     * while they answer.
      */
     protected function afterSave(): void
     {
@@ -365,6 +436,10 @@ class EditRestaurantSettings extends EditTenantProfile
         $stripeChanged = $restaurant->wasChanged(['stripe_publishable_key', 'stripe_secret_key', 'stripe_webhook_secret', 'custom_domain']);
         $squareChanged = $restaurant->wasChanged(['square_application_id', 'square_access_token']);
         $domainChanged = $restaurant->wasChanged('custom_domain');
+
+        if ($restaurant->doordashConfigured() && $restaurant->wasChanged(['doordash_developer_id', 'doordash_key_id', 'doordash_signing_secret'])) {
+            DB::afterCommit(fn () => $this->checkDoorDash());
+        }
 
         if ($restaurant->useReadyProcessor()) {
             Notification::make()
@@ -580,6 +655,55 @@ class EditRestaurantSettings extends EditTenantProfile
             },
             $checkedAt === null ? null : "Checked {$checkedAt}.",
         ]));
+    }
+
+    /** Checks the DoorDash access key with DoorDash, and says how that went. */
+    private function checkDoorDash(): void
+    {
+        try {
+            app(DoorDashGateway::class)->checkCredentials($this->restaurant());
+        } catch (DoorDashKeyRejected) {
+            Notification::make()
+                ->danger()
+                ->title('DoorDash didn’t accept the access key')
+                ->body('Copy the developer ID, key ID and signing secret again from the key in DoorDash’s Developer Portal (Credentials), and save. A sandbox key only works in the sandbox.')
+                ->send();
+
+            return;
+        } catch (CourierUnavailable) {
+            Notification::make()
+                ->warning()
+                ->title('DoorDash couldn’t be checked')
+                ->body('DoorDash didn’t answer. Press “Check with DoorDash” to try again.')
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->success()
+            ->title('DoorDash accepted your access key')
+            ->send();
+    }
+
+    /**
+     * DoorDash can be switched on once its access key is in (saved, or being saved) and the
+     * restaurant has a phone number DoorDash accepts: its drivers call it.
+     */
+    private function checkDoorDashCanBeOn(mixed $value, Get $get, Closure $fail): void
+    {
+        if (! $value) {
+            return;
+        }
+
+        $keyIn = filled($get('doordash_developer_id')) && filled($get('doordash_key_id'))
+            && (filled($get('doordash_signing_secret')) || filled($this->restaurant()->doordash_signing_secret));
+
+        if (! $keyIn) {
+            $fail('Enter your DoorDash access key’s developer ID, key ID and signing secret first.');
+        } elseif (PhoneNumber::e164(is_string($get('phone')) ? $get('phone') : null) === null) {
+            $fail('Add the restaurant’s phone number under Details first, for DoorDash’s drivers to call.');
+        }
     }
 
     private function savedPlaceholder(string $attribute, string $example): string

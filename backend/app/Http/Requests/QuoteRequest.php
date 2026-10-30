@@ -31,6 +31,13 @@ class QuoteRequest extends FormRequest
             'items.*.modifier_option_ids.*' => ['integer'],
             'items.*.notes' => ['nullable', 'string', 'max:200'],
             'postcode' => ['nullable', 'required_if:fulfilment_type,delivery', 'string', 'regex:/^\d{4}$/'],
+            // The street address, once checkout has it: DoorDash needs it to price or confirm a
+            // delivery (the restaurant's own zones need only the postcode).
+            'delivery' => ['nullable', 'array'],
+            'delivery.line1' => ['nullable', 'string', 'max:255'],
+            'delivery.line2' => ['nullable', 'string', 'max:255'],
+            'delivery.suburb' => ['nullable', 'string', 'max:100'],
+            'delivery.state' => ['nullable', 'string', 'max:40'],
             'table' => ['nullable', 'required_if:fulfilment_type,dine_in', 'string', 'max:20'],
             'scheduled_for' => ['nullable', 'date'],
             'promo_code' => ['nullable', 'string', 'max:40'],
@@ -56,7 +63,7 @@ class QuoteRequest extends FormRequest
 
     public function cart(): Cart
     {
-        /** @var array{fulfilment_type: string, items: list<array{menu_item_id: int|string, quantity: int|string, modifier_option_ids?: list<int|string>|null, notes?: string|null}>, postcode?: string|null, scheduled_for?: string|null, promo_code?: string|null, table?: string|null} $validated */
+        /** @var array{fulfilment_type: string, items: list<array{menu_item_id: int|string, quantity: int|string, modifier_option_ids?: list<int|string>|null, notes?: string|null}>, postcode?: string|null, scheduled_for?: string|null, promo_code?: string|null, table?: string|null, delivery?: array{line1?: string|null, line2?: string|null, suburb?: string|null, state?: string|null}|null} $validated */
         $validated = $this->validated();
 
         return Cart::fromValidated($validated);

@@ -57,6 +57,7 @@ failures (HTTP 422).
 | [`POST /orders/{public_id}/square-payment`](#post-orderspublic_idsquare-payment) | Tracking token, `Idempotency-Key` header, 10 a minute | Built (Square) |
 | [`POST /stripe/webhook/{slug}`](#post-stripewebhookslug) | Stripe (signature verified) | Built (phase 3; one per restaurant since phase 7) |
 | [`POST /square/webhook/{slug}`](#post-squarewebhookslug) | Square (signature verified) | Built (Square) |
+| [`POST /doordash/webhook/{slug}`](#post-doordashwebhookslug) | DoorDash (the restaurant's Authorization value) | Built (DoorDash) |
 | [`POST /auth/register`](#post-authregister) | Public | Built (phase 4) |
 | [`POST /auth/login`](#post-authlogin) | Public | Built (phase 4) |
 | [`POST /auth/logout`](#post-authlogout) | Signed in | Built (phase 4) |
@@ -67,6 +68,7 @@ failures (HTTP 422).
 | [`POST /push-tokens`](#post-push-tokens) | Signed in, or a guest with a tracking token | Built (phase 3) |
 | [`GET /staff/orders?status=`](#get-stafforders) | Staff or owner | Built (phase 3) |
 | [`POST /staff/orders/{public_id}/accept`, `/reject`, `/status`](#post-stafforderspublic_idaccept) | Staff or owner | Built (phase 3) |
+| [`POST /staff/orders/{public_id}/courier`](#post-stafforderspublic_idcourier) | Staff or owner | Built (DoorDash) |
 | [`PATCH /staff/restaurant`](#patch-staffrestaurant) | Staff or owner | Built (phase 3) |
 | [`PATCH /staff/menu-items/{id}`, `PATCH /staff/modifier-options/{id}`](#patch-staffmenu-itemsid) | Staff or owner | Built (phase 3) |
 
@@ -130,7 +132,9 @@ Accept: application/json
                         "min_order_cents": 2500,
                         "estimated_minutes": 45
                     }
-                ]
+                ],
+                "courier": "doordash",
+                "fee_from_address": false
             },
             "dine_in": { "enabled": true, "tables": ["1", "2", "3", "12", "Patio 1"] }
         },
@@ -156,6 +160,11 @@ Accept: application/json
   or if nothing is scheduled).
 - `fulfilment.delivery.zones`: active zones only. Delivery is `enabled` only when the owner
   has it switched on and at least one zone is active.
+- `fulfilment.delivery.courier`: `doordash` when DoorDash's drivers deliver the restaurant's
+  delivery orders (booked with its own DoorDash account), null when its own drivers do.
+- `fulfilment.delivery.fee_from_address`: true when customers pay DoorDash's price for their
+  address rather than the zone's fee. The fee is then known only at checkout, once the quote
+  has the street address (see the quote's `delivery`).
 - `opening_hours`: one entry per weekly shift, Monday first. `day_of_week` is 0 for Sunday to
   6 for Saturday. A day can have several shifts.
 - `special_hours`: holidays and one-off changes in the next 30 days. `is_closed` is true
@@ -321,6 +330,7 @@ Content-Type: application/json
 |---|---|
 | `fulfilment_type` | Required: `pickup`, `delivery` or `dine_in` (at one of the restaurant's tables) |
 | `postcode` | Required for delivery; 4 digits |
+| `delivery` | Optional: the street address once checkout has it, `{"line1", "line2", "suburb", "state"}`. When DoorDash delivers, a quote with `line1` and `suburb` asks DoorDash about the address (see below) |
 | `table` | Required for dine in: one of `fulfilment.dine_in.tables`, any case |
 | `scheduled_for` | Null for as soon as possible, or an ISO 8601 time from `/slots` |
 | `promo_code` | Optional; any case |
@@ -380,7 +390,9 @@ Content-Type: application/json
                 "min_order_cents": 2500,
                 "estimated_minutes": 45
             },
-            "table": null
+            "table": null,
+            "courier": null,
+            "delivery_fee_pending": false
         },
         "scheduled_for": null,
         "errors": [
@@ -399,7 +411,11 @@ How the totals are worked out:
 - A line costs (item price + chosen option prices) × quantity, never less than zero. Lines
   with a problem are priced and shown, but left out of the totals.
 - `subtotal_cents`: the food, from lines without problems.
-- `delivery_fee_cents`: the zone's fee for delivery; 0 for pickup.
+- `delivery_fee_cents`: the zone's fee for delivery; 0 for pickup. When DoorDash delivers and
+  customers pay DoorDash's price (`fulfilment.delivery.fee_from_address`), DoorDash's price for
+  the address in `delivery`, with any tax DoorDash adds; without the address, 0, with
+  `fulfilment.delivery_fee_pending` true. The order request carries the address, so the order
+  is always priced; a price is kept for 4 minutes, so checkout's total and the order's agree.
 - `discount_cents`: the promo code's percentage of the subtotal (rounded to the nearest cent),
   or its fixed amount, never more than the subtotal. Delivery isn't discounted.
 - `total_cents` = subtotal − discount + delivery fee.
@@ -408,6 +424,10 @@ How the totals are worked out:
 `can_place_order` is true when `errors` is empty. Each error has a `code`, a `message` that
 says how to fix it, and the `field` it concerns. Line errors also appear in that line's
 `errors`, for showing inline.
+
+`fulfilment.courier` is `doordash` when DoorDash's drivers deliver it (null otherwise), and
+`fulfilment.delivery_fee_pending` is true while the fee waits for the address: it isn't in
+`delivery_fee_cents` or the total yet, so checkout shouldn't take payment until it's false.
 
 | Code | Field | When |
 |---|---|---|
@@ -420,6 +440,8 @@ says how to fix it, and the `field` it concerns. Line errors also appear in that
 | `fulfilment_unavailable` | `fulfilment_type` | Pickup is switched off, or dine in is off or has no tables taking orders |
 | `unknown_table` | `table` | Dine in at a table the restaurant doesn't have, or has turned off |
 | `not_deliverable` | `postcode` | Delivery is off, or the postcode isn't in an active zone |
+| `not_deliverable` | `delivery.line1` | DoorDash delivers, and won't deliver to the address in `delivery` |
+| `delivery_unavailable` | `delivery.line1` | DoorDash delivers, and couldn't be asked about the address (nobody would come, so delivery can't be ordered); try again shortly |
 | `below_minimum` | `items` | The food subtotal is under the zone's minimum (before any discount) |
 | `closed` | `scheduled_for` | ASAP while outside opening hours; the message says when it next opens |
 | `paused` | `scheduled_for` | ASAP while ordering is paused |
@@ -452,6 +474,12 @@ Delivery orders go out for delivery before they're completed; pickup orders neve
 an order, or cancelling a paid one, refunds it in full. An unpaid order is cancelled after 30
 minutes, and a placed order not accepted within the restaurant's `auto_reject_minutes` is
 rejected and refunded (the clock starts at opening time for orders placed while closed).
+
+When DoorDash delivers the order (its `courier` is set), accepting it books a DoorDash driver
+for when it's ready (or, for a time chosen more than an hour ahead, for when it should arrive);
+the driver collecting it moves it on to `out_for_delivery` (through any steps the kitchen didn't
+tap), and DoorDash delivering it to `completed`. Cancelling it calls the driver off, which
+DoorDash allows until a driver is assigned.
 
 ### `POST /restaurants/{slug}/orders`
 
@@ -487,7 +515,7 @@ Authorization: Bearer 3|kD8sX…          (optional: links the order to the acco
 | Field | Rules |
 |---|---|
 | `Idempotency-Key` header | Required, 8–100 characters. A new random value (a UUID) for each order, repeated unchanged on retries |
-| `customer.name`, `customer.phone`, `customer.email` | Required. The phone needs at least 8 digits |
+| `customer.name`, `customer.phone`, `customer.email` | Required. The phone needs at least 8 digits; when DoorDash delivers, one its driver can call (one that can be written with its country code, such as 0412 345 678) |
 | `delivery.line1`, `delivery.suburb` | Required for delivery; `line2`, `state` and `instructions` are optional |
 | `notes` | Optional, up to 500 characters |
 | `push_token` | Optional Expo push token, so a guest gets notifications about this order |
@@ -523,8 +551,9 @@ are safe:
   different order. Send a new key for a new order."
 - **While the first request is still setting up the payment:** `409` "This order is still being
   set up. Try again in a few seconds."
-- **A cart that can't be ordered** (closed, paused, sold out, outside the delivery area, below
-  the minimum, a bad promo code): `422`, with the quote's messages under `errors`, keyed by field.
+- **A cart that can't be ordered** (closed, paused, sold out, outside the delivery area, an
+  address DoorDash won't deliver to, below the minimum, a bad promo code): `422`, with the
+  quote's messages under `errors`, keyed by field (`delivery.line1` for the address).
 - **Stripe unreachable:** `503`. Retry with the same key; the order is kept.
 - **The restaurant's processor isn't set up yet** (no Stripe keys, or no Square credentials or
   location): `503` "This restaurant isn’t taking payments online yet.", before any order is
@@ -560,6 +589,12 @@ most every 10 seconds per order. A paid order is then `placed` even if the webho
         "rejection_reason": null,
         "restaurant": { "slug": "himalayan-momo-house", "name": "Himalayan Momo House", "phone": "03 5550 0142" },
         "delivery": { "suburb": "Southbank", "postcode": "3006" },
+        "courier": {
+            "name": "DoorDash",
+            "status": "driver_assigned",
+            "driver_name": "Priya S.",
+            "tracking_url": "https://www.doordash.com/drive/portal/track/…"
+        },
         "items": [
             {
                 "menu_item_id": 1,
@@ -590,6 +625,12 @@ most every 10 seconds per order. A paid order is then `placed` even if the webho
     }
 }
 ```
+
+`courier` is null unless DoorDash delivers the order. Its `status` is null until a driver is
+booked, then `booked` (DoorDash is finding a driver), `driver_assigned`, `at_pickup`,
+`picked_up`, `at_dropoff` and `delivered`; or `cancelled`, `returning`, `returned` or `failed`
+when the restaurant has to step in (another driver, or its own). `driver_name` is the first name
+and last initial DoorDash shares, and `tracking_url` is DoorDash's live map of the delivery.
 
 `order_number` is null until the order is paid. `table` is the table for a dine-in order (as it
 was called when ordered), otherwise null. Names and prices in `items` are as ordered;
@@ -670,6 +711,41 @@ Anything else, including the restaurant's in-person Square sales, is acknowledge
 An event only ever affects that restaurant's orders, and is stored once per restaurant: a
 replay gets `200` with `"duplicate": true`.
 
+### `POST /doordash/webhook/{slug}`
+
+For DoorDash: each restaurant's own DoorDash account sends its deliveries' progress to its own
+endpoint, which its back office shows (Restaurant settings → DoorDash), with that restaurant's
+webhook authorization value. DoorDash doesn't sign its webhooks: in its Developer Portal, the
+endpoint uses Basic Auth with that value, which DoorDash sends in the `Authorization` header
+(with or without `Basic ` in front). Anything else is `401`, also while the restaurant has no
+value yet. An unknown slug is `404`.
+
+```json
+{
+    "event_name": "DASHER_PICKED_UP",
+    "external_delivery_id": "01k6b2x0v8r5c9m3t7w4y1z6qe",
+    "dasher_name": "Priya S.",
+    "tracking_url": "https://www.doordash.com/drive/portal/track/…",
+    "support_reference": "1234567",
+    "created_at": "2026-10-05T07:22:41Z"
+}
+```
+
+`external_delivery_id` is the platform's ID for the booking: the order's `public_id`, followed
+by `-2`, `-3`… for later bookings of the same order. The platform acts on:
+
+- `DASHER_CONFIRMED`, `DASHER_CONFIRMED_PICKUP_ARRIVAL`: the driver is on the way, or there;
+- `DASHER_PICKED_UP`: the order is `out_for_delivery`;
+- `DASHER_CONFIRMED_DROPOFF_ARRIVAL`, `DASHER_DROPPED_OFF`: the driver is at the address, then
+  the order is `completed`;
+- `DELIVERY_CANCELLED`, `DELIVERY_RETURN_INITIALIZED`, `DASHER_CONFIRMED_RETURN_ARRIVAL`,
+  `DELIVERY_RETURNED`: the kitchen is told, and can book another driver.
+
+Other events, deliveries the platform didn't book, and earlier bookings of the order are
+acknowledged and ignored. News never moves a delivery back past the pickup, so a replayed or
+late event changes nothing. DoorDash sends each event up to three times until it gets `200`;
+anything still missed is caught by asking DoorDash every minute (`orders:sync-couriers`).
+
 ## Customer accounts (orders, addresses, notifications)
 
 ### `GET /me/orders`
@@ -741,6 +817,7 @@ The orders the kitchen still has to act on (`placed`, `accepted`, `preparing`, `
             "ready_at": null,
             "customer": { "name": "Sam Taylor", "phone": "0491 570 110", "email": "sam@example.com" },
             "delivery": { "line1": "12 Southbank Boulevard", "line2": "Apartment 1204", "suburb": "Southbank", "state": "VIC", "postcode": "3006", "instructions": "Buzz 1204" },
+            "courier": null,
             "notes": "Ring when you’re here",
             "items": [ { "name": "Steamed momo", "quantity": 2, "…": "as in GET /orders/{public_id}" } ],
             "total_cents": 4182
@@ -753,6 +830,27 @@ The orders the kitchen still has to act on (`placed`, `accepted`, `preparing`, `
 rejected and refunded automatically. For an order placed while the restaurant was closed, the
 clock starts when it opens.
 
+`courier` is null unless DoorDash delivers the order. Then:
+
+```json
+{
+    "name": "DoorDash",
+    "status": "cancelled",
+    "driver_name": null,
+    "tracking_url": "https://www.doordash.com/drive/portal/track/…",
+    "support_reference": "1234567",
+    "problem": "DoorDash cancelled the delivery (dasher not available). Book another driver, or deliver it yourselves.",
+    "can_book": true
+}
+```
+
+`status` is as in `GET /orders/{public_id}` (null until the booking made on accepting it is
+done), `support_reference` is DoorDash support's reference for the delivery, and `problem` says
+why there's no driver: DoorDash refused or never answered the booking, called it off, or the
+driver brought the order back, or a driver couldn't be called off when the order was cancelled.
+`can_book` says the kitchen can book a driver with
+[`POST /staff/orders/{public_id}/courier`](#post-stafforderspublic_idcourier).
+
 ### `POST /staff/orders/{public_id}/accept`
 
 `{ "prep_minutes": 15 }` (5–180). Sets `estimated_ready_at` to now plus the prep time, or keeps
@@ -764,6 +862,18 @@ a scheduled order's promised time if that's later. Returns the order as above.
 `POST /staff/orders/{public_id}/status`: `{ "status": "preparing", "note": null }`. `status` is
 `preparing`, `ready`, `out_for_delivery`, `completed` or `cancelled` (refunded if paid). A move
 the lifecycle doesn't allow is `422`: "An order that’s ready can’t be marked preparing."
+
+When DoorDash delivers the order, accepting it books a DoorDash driver (on the queue, so the
+answer arrives with a live update); cancelling it calls the driver off.
+
+### `POST /staff/orders/{public_id}/courier`
+
+Books a DoorDash driver for a delivery order that has none, when its `courier.can_book` is true:
+DoorDash refused or never answered the booking, called it off, or the driver brought the order
+back. No body. DoorDash is asked straight away, and the order comes back as above, with its new
+booking. `422` with `errors.courier` when DoorDash doesn't deliver the order ("DoorDash doesn’t
+deliver this order. Deliver it yourselves."), when a driver is already booked, or when DoorDash
+refuses the booking (with DoorDash's reason); `503` when DoorDash can't be reached.
 
 ### `PATCH /staff/restaurant`
 
